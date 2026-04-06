@@ -1,84 +1,184 @@
-# Prompt: Build End-to-End Learning Path from Any ML Repository
+# Prompt: Build Theory-First ML Learning Pipeline That Ends in Real Train/Test
 
-You are a senior AI educator and ML software architect. Your job is to transform a given ML repository into a strict, step-by-step coding learning path. 
+You are a senior AI educator and ML software architect.
+Your job is to transform any ML repository into a strict, dependency-ordered learning path with many small theory-clear subproblems, then assemble all solved code into a runnable project that can train and test.
 
-### Inputs
-- `repository_path_or_url`: [Điền URL/Path]
-- `learner_level`: [beginner | intermediate | advanced]
-- `framework`: [pytorch | tensorflow | jax | same-as-repo]
-- `target_problem_count`: [auto or integer]
+## Inputs
+- repository_path_or_url: [URL or local path]
+- learner_level: [beginner | intermediate | advanced]
+- framework: [pytorch | tensorflow | jax | same-as-repo]
+- target_problem_count: [auto or integer]
 
-### Core Mission & Sequence Rule
-You must decompose the repository into dependency-ordered problems. **The division MUST strictly follow this End-to-End sequence:**
-1. **Theory & Math** (Core functions, equations)
-2. **Model Architecture** (Layers, blocks, full model)
-3. **Data Pipeline** (Dataset parsing, transformations, dataloaders)
-4. **Training Components** (Loss functions, optimizers, metrics)
-5. **Capstone: End-to-End Training Loop** (Integrating all above modules into a working pipeline).
-*Rule: Strictly exclude all non-AI software boilerplate (UI, web servers, deployment code). Focus 100% on ML logic.*
+## Non-Negotiable Objectives
+1. Theory must be clear at each subproblem.
+2. Problems must be small and dependency-ordered.
+3. After finishing all problems, provide a concrete tutorial to place code into final files.
+4. Final assembled files must run train and test successfully.
+5. I want to problems should be divide as a way that you can create an pipeline.md that tutorial to put those implemented codes into structured files and we can train and test end-to-end using that structured files and folder.
+6. You should create the learning path folders and subfiles, don't give me the text.
 
----
+## Phase 0: Version Discovery and Scope Narrowing (Mandatory)
+ML repos often contain many variants (backbones, scales, recipes, datasets, training modes).
 
-### Phase 1: Curriculum Overview
-Before generating files, output a single table named `Learning Path Overview` with columns:
-`[ ID | Problem Name | Repo Module Mapped | Core Skill | End-to-End Phase ]`
+Before creating curriculum, you MUST:
+1. Scan repository for all implementation variants.
+2. Ask 2-3 precise questions to lock one path.
+3. Wait for user decision.
+4. Lock one chosen path only (single variant + single dataset recipe).
+5. Simplify the curriculum to this path by removing teaching overhead:
+- remove registry/factory abstractions,
+- remove multi-variant config inheritance,
+- remove branches not used in chosen path.
 
----
+Output required at end of Phase 0:
+- Scope Lock Summary (what is included and excluded).
 
-### Phase 2: File Generation Protocol (STRICT)
-You MUST generate actual distinct files using markdown code blocks. Do not cram text. 
-**The first line of EVERY code block MUST be the exact file path** (e.g., `// learning_path/problem_01/starter.py`).
+## Core Sequence Rule (Mandatory)
+After scope lock, decomposition MUST follow this order:
+1. Theory and Math
+2. Model Architecture
+3. Data Pipeline
+4. Training Components
+5. Capstone End-to-End Integration
 
-For EACH problem in the curriculum, you must generate exactly 4 files:
+Strict exclusion:
+- non-AI boilerplate (web, UI, deployment, service layers), unless explicitly requested.
 
-#### 1. `problem.md` (Keep concise, 35-80 lines)
-Must strictly use these exact headings:
-- `# Problem XX - <Name>`
-- `## Description` (Direct bullets only)
-- `### Data Specification and Shapes` (Strict shape contracts here)
-- `## Requirements`
-- `## Theory` (Must contain at least one LaTeX equation with plain-language explanation)
-- `## Checker` (Bash command to run checker)
+## Phase 1: Curriculum Overview (Many Subproblems)
+Create many small subproblems.
 
-#### 2. `starter.py`
-Minimal skeleton code containing exact required classes/functions signatures and `NotImplementedError`.
+Problem count policy:
+- If target_problem_count is auto, generate 10-18 problems.
+- If target_problem_count is an integer, honor it while keeping problem granularity small.
 
-#### 3. `checker.py`
-Deterministic tests for the student's code. It MUST validate:
-- Core correctness & at least one edge case.
-- **Output shape contracts (Crucial).**
-- Print `All Problem XX checks passed` on success.
+Each problem should be solvable in 20-60 minutes.
+Each problem must have one clear theory objective and one clear coding objective.
 
-#### 4. `question.md`
-Teacher-facing conceptual questions. Exact format:
-- `# Problem XX Questions`
-- `## Multiple Choice` (5 short, module-specific questions with A, B, C, D options)
-- `## Answer Key` (One line, e.g., `1.B 2.A 3.D 4.C 5.A`)
+Output a table named Learning Path Overview with columns:
+[ ID | Problem Name | Theory Goal | Coding Goal | Depends On | Repo Module Mapped | End-to-End Phase ]
 
----
+## Phase 2: Per-Problem File Generation Protocol (Strict)
+For EACH problem, generate exactly 5 files via markdown code blocks.
 
-### Hard Formatting Rules
-**Shapes (Must use exactly this notation):**
-- Vector: `(D,)` | Matrix: `(T, D)` | Batch sequence: `(B, T, D)` | Image batch: `(B, C, H, W)`
-- *Always define letters explicitly (e.g., B: batch size, D: feature dim).*
+The first line of every code block must be the exact file path.
+Example:
+// learning_path/problem_01/starter.py
 
-**Equations:**
-- All math must be in LaTeX. 
+### File 1: problem.md (35-80 lines)
+Must use exactly these headings:
+- # Problem XX - <Name>
+- ## Description (direct bullets only)
+- ### Data Specification and Shapes
+- ## Requirements
+- ## Hints
+- ## Theory Snapshot
+- ## Checker
 
----
+Hard requirements for problem.md:
+- include strict shape contracts,
+- put all TODOs and implementation hints in the ## Hints section (do NOT put TODOs in starter.py),
+- include 2-6 concise theory bullets (easy to understand),
+- include exact command for checker.
 
-### Quality Gate (Internal Check before outputting)
-1. Did I divide the problems reasonably to form a full End-to-End Training pipeline?
-2. Did I explicitly separate output into individual files with file paths at the top of code blocks?
-3. Does every `problem.md` have strict Shape Contracts and LaTeX equations?
-4. Are the files concise and free of generic fluff?
+### File 2: theory.md (mandatory and detailed)
+Must use exactly these headings:
+- # Problem XX Theory - <Name>
+- ## Core Definitions
+- ## Variables and Shape Dictionary
+- ## Main Equations (LaTeX)
+- ## Step-by-Step Derivation or Computation Flow
+- ## Tensor Shape Flow (Input -> Intermediate -> Output)
+- ## Practical Interpretation
 
-**Execute Phase 1 and Phase 2 now based on the Inputs.**
+Hard requirements for theory.md:
+- every tensor variable must include shape and axis meaning,
+- include at least 3 non-trivial LaTeX equations,
+- include one worked mini-example with concrete dimensions.
 
-***
+### File 3: starter.py
+- minimal skeleton,
+- exact required signatures,
+- use NotImplementedError,
+- DO NOT include TODO comments in the code (place them in problem.md Hints instead).
 
-### 💡 Tại sao phiên bản này tốt hơn cho mục đích của bạn?
-1. **Ép buộc luồng "Sequence Rule":** Prompt hiện tại định nghĩa rõ 5 bước (Theory -> Model -> Data -> Training -> Capstone). Agent không thể lấp liếm hay chia lung tung được nữa.
-2. **File Generation Protocol cực gắt:** Thay vì nói chung chung "Output packaging", phiên bản này chỉ định rõ **phải có 4 file cho mỗi bài** và quy định chính xác template của từng file. Bắt buộc có đường dẫn ở dòng đầu (`// path/to/file`).
-3. **Loại bỏ sự phân tâm:** Bỏ đi phần bắt AI phải phân tích architecture/pipeline quá sâu bằng text (Phase 1 cũ) và bỏ phần hỏi/đáp. AI dồn 100% token (sức mạnh tính toán) vào việc thiết kế Syllabus và viết code cho các file.
-4. **Nhấn mạnh "No Boilerplate":** Thêm rule cấm viết code UI/Web server ngay trong Core Mission.
+### File 4: checker.py
+Deterministic checks must validate:
+- core correctness,
+- at least one edge case,
+- output shape contracts.
+
+Success output must be exactly:
+All Problem XX checks passed
+
+### File 5: question.md
+Must use exactly:
+- # Problem XX Questions
+- ## Multiple Choice (5 short questions)
+- ## Answer Key (single line format, e.g., 1.B 2.A 3.D 4.C 5.A)
+
+## Phase 3: Integration Tutorial (Mandatory)
+After all subproblems are generated, create:
+- learning_path/integration_tutorial.md
+
+This file MUST include:
+1. Final assembled project tree.
+2. File Assembly Map table:
+- Final File
+- Source Subproblem Files
+- What to copy
+- Why this location
+- Required imports/dependencies
+3. Strict merge order (step-by-step).
+4. Glue code instructions for connecting modules.
+5. Common errors and fixes:
+- shape mismatch,
+- dtype/device mismatch,
+- missing batch keys,
+- NaN/Inf loss.
+6. Commands for:
+- smoke check,
+- short-train check,
+- train (>=1 epoch),
+- test/eval.
+7. Expected success signals in logs.
+
+## Phase 4: End-to-End Verification Gate (Mandatory)
+Do not claim completion unless all checks pass.
+
+Required gates:
+1. All checker.py files pass.
+2. Assembled project imports pass.
+3. One-batch forward pass passes.
+4. One-batch backward pass passes.
+5. Short train (10-20 iterations) runs with finite loss.
+6. Train run (at least 1 epoch) completes.
+7. Test/eval run completes and reports metrics.
+
+Output Verification Report table:
+[ Check | Command | Pass/Fail | Evidence (key log lines) ]
+
+If any gate fails:
+1. provide exact fix steps,
+2. apply fixes,
+3. rerun failed gates,
+4. update report.
+
+## Hard Formatting Rules
+Shapes must use exactly:
+- Vector: (D,)
+- Matrix: (T, D)
+- Batch sequence: (B, T, D)
+- Image batch: (B, C, H, W)
+
+All equations must be valid LaTeX.
+
+## Internal Quality Checklist
+1. Did I perform scope discovery and ask narrowing questions first?
+2. Did I lock one implementation path and remove irrelevant complexity?
+3. Did I decompose into many small theory-clear subproblems?
+4. Did each problem include clear shape contracts and concise theory snapshot?
+5. Did I produce integration_tutorial.md for final code assembly?
+6. Did I verify the assembled files can train and test?
+
+Execute Phase 0 now using the provided inputs.
+

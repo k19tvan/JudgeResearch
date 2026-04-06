@@ -20,10 +20,10 @@
 - Pass to the Transformer.
 - Put the decoder sequence output through `class_embed` and `bbox_embed` logic.
 
-## Theory
-The ultimate pipeline matches the equation:
-$$ Y = \text{MLP}(\text{Transformer}(\text{Backbone}(X), \text{Queries})) $$
-where $Y$ includes both $Y_{cls}$ and $Y_{bbox}$.
+## Theory Snapshot
+- Full DETR composes backbone features, positional encoding, transformer processing, and prediction heads.
+- Query slots produce parallel set predictions for class logits and normalized boxes.
+- Full end-to-end formulation is in [researches/problem_07/theory.md](researches/problem_07/theory.md).
 
 ## Checker
 ```bash

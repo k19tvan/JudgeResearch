@@ -19,11 +19,10 @@
 - Apply residual connection around the attention sub-layer: `src = src + Dropout(Attn())`
 - Pass the result through the FFN with another residual connection.
 
-## Theory
-Given an input $src$, the single encoder layer operates as follows:
-$$ src' = src + \text{Dropout}(\text{MultiHeadAttention}(Q=src+P_K, K=src+P_K, V=src)) $$
-$$ \text{output} = \text{LayerNorm}_1(src') + \text{Dropout}(\text{FFN}(\text{LayerNorm}_1(src'))) $$
-*(Note: DETR uses slightly different layernorm positions in its default 'post' vs 'pre' config. Here we use standard Post-Normalization).*
+## Theory Snapshot
+- An encoder layer alternates global self-attention and channel-mixing FFN with residual paths.
+- Positional encoding is added to Q/K to maintain spatial context across flattened image tokens.
+- Full equations, normalization variants, and shape tracing are in [researches/problem_05/theory.md](researches/problem_05/theory.md).
 
 ## Checker
 ```bash

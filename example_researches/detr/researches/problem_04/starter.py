@@ -11,6 +11,7 @@ class MultiHeadAttentionWithPos(nn.Module):
         
         # In actual PyTorch, nn.MultiheadAttention does this internally,
         # but you should wrap it here to correctly add positional encodings.
+        self.self_attn = nn.MultiheadAttention(self.embed_dim, self.num_heads)
         self.qkv_proj = nn.Linear(embed_dim, 3 * embed_dim)
         
     def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, 
@@ -23,4 +24,13 @@ class MultiHeadAttentionWithPos(nn.Module):
         Returns:
             output: (N, B, C)
         """
+        
+        if query_pos is not None: q += query_pos
+        if key_pos is not None: k += key_pos
+        
+        N, B, C = q.shape
+        
+        
+        
+        
         raise NotImplementedError("Implement Attention with Positional injection")

@@ -18,10 +18,10 @@
 - Compute attention scores using scaled dot-product.
 - Apply softmax and multiply by value embeddings.
 
-## Theory
-Given Query $Q$, Key $K$, Value $V$, and positional encodings $P_Q, P_K$:
-$$ \text{score} = \text{softmax}\left(\frac{(Q + P_Q)(K + P_K)^T}{\sqrt{d_k}}\right) V $$
-Notice that positional encodings do not corrupt the value tensor $V$.
+## Theory Snapshot
+- DETR injects position into query and key while keeping value as pure semantic content.
+- This preserves geometric awareness in attention weights without distorting carried features.
+- Full derivation and tensor-level interpretation are in [researches/problem_04/theory.md](researches/problem_04/theory.md).
 
 ## Checker
 ```bash

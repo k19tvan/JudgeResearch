@@ -14,6 +14,11 @@
 - Explicit gradient clipping via `torch.nn.utils.clip_grad_norm_`.
 - `optimizer.step()`
 
+## Theory Snapshot
+- A training step composes forward pass, assignment, loss computation, gradient propagation, and parameter update.
+- The loop semantics ensure gradients flow only through differentiable parts while matching is non-differentiable.
+- Full computational graph explanation is in [researches/problem_11/theory.md](researches/problem_11/theory.md).
+
 ## Checker
 ```bash
 python learning_path/problem_11/checker.py

@@ -19,10 +19,10 @@
 - Compute the frequencies and apply `sin` to even indices and `cos` to odd.
 - Concatenate row and col embeddings to form total dimension `C`.
 
-## Theory
-Positional encoding along axis $p$:
-$$PE_{p, 2i} = \sin\left(\frac{p}{\tau^{2i / (C/2)}}\right), \quad PE_{p, 2i+1} = \cos\left(\frac{p}{\tau^{2i / (C/2)}}\right)$$
-Here $p \in [0, 1]$ when normalized. Two such embeddings for $X$ ($C/2$ dim) and $Y$ ($C/2$ dim) are concatenated to create the $C$-dimensional vector.
+## Theory Snapshot
+- 2D sine/cosine encoding injects spatial coordinates into attention without learnable position parameters.
+- Separate embeddings for x and y axes are concatenated to build a full channel-wise positional vector.
+- Full formulas, axis semantics, and shape flow are in [researches/problem_03/theory.md](researches/problem_03/theory.md).
 
 ## Checker
 ```bash

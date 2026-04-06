@@ -15,11 +15,10 @@
 - Compute the Union area.
 - Find the area of the smallest enclosing box $C$ encompassing both targets.
 
-## Theory
-Given two absolute boxes $A$ and $B$:
-$$ \text{IoU} = \frac{|A \cap B|}{|A \cup B|} $$
-Let $C$ be the smallest convex bounding box containing $A$ and $B$.
-$$ \text{GIoU} = \text{IoU} - \frac{|C \setminus (A \cup B)|}{|C|} $$
+## Theory Snapshot
+- IoU measures overlap quality but becomes uninformative when boxes do not overlap.
+- GIoU adds an enclosure penalty so optimization still receives geometry-aware gradients.
+- Full derivation and variable-level explanation are in [researches/problem_02/theory.md](researches/problem_02/theory.md).
 
 ## Checker
 ```bash

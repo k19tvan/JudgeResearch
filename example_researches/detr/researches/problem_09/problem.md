@@ -14,10 +14,10 @@
 - Pass it to the hungarian solver algorithm.
 - Return the indices scaled back up to PyTorch tensors.
 
-## Theory
-Given cost matrix $C \in \mathbb{R}^{N \times M}$, find permutation matrix $P$ minimizing:
-$$ \arg\min_{P} \sum_{i,j} C_{i,j} P_{i,j} $$
-This solves exactly the problem of identifying the exact structural assignment without heuristics or hard IoU thresholds.
+## Theory Snapshot
+- Hungarian matching solves one-to-one assignment globally, not greedily.
+- It converts dense pairwise costs into optimal index pairs for supervision.
+- Full optimization formulation is in [researches/problem_09/theory.md](researches/problem_09/theory.md).
 
 ## Checker
 ```bash

@@ -16,11 +16,10 @@
 - `box_xywh_to_cxcxw`: calculate center coordinates and normalize by image dimensions.
 - `box_cxcxw_to_xyxy`: given normalized format, calculate absolute `[x_min, y_min, x_max, y_max]`.
 
-## Theory
-Normalized center X is calculated as:
-$$ c_x = \frac{x_{min} + w / 2}{W_{img}} $$
-To revert back to absolute bounds:
-$$ x_{min} = (c_x - w / 2) \cdot W_{img} $$
+## Theory Snapshot
+- Box conversions map between absolute coordinates and normalized center-size coordinates.
+- Normalization makes targets resolution-agnostic and stable across image sizes.
+- Full derivations, symbol definitions, and shape semantics are in [researches/problem_01/theory.md](researches/problem_01/theory.md).
 
 ## Checker
 ```bash

@@ -15,9 +15,10 @@
 - Compute L1 and GIoU bounds ONLY for the positively matched queries.
 - Return a dictionary of losses.
 
-## Theory
-Total loss is defined as:
-$$ L(y, \hat{y}) = \lambda_{cls} L_{CE} + \mathbb{1}_{\{\text{match}\}} \left[ \lambda_{\text{L1}} L_1 + \lambda_{\text{giou}} L_{giou} \right] $$
+## Theory Snapshot
+- Set criterion combines class loss over all queries and box losses over matched pairs.
+- Background handling for unmatched queries is central to stable DETR training.
+- Full loss decomposition is in [researches/problem_10/theory.md](researches/problem_10/theory.md).
 
 ## Checker
 ```bash

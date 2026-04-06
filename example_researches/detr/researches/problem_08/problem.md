@@ -20,9 +20,10 @@
 - Use the `box_giou` (Problem 02) function or a built-in replacement to calculate shape penalties.
 - Combine the matrices according to lambda weights.
 
-## Theory
-Given query $i$ and target $j$:
-$$ C(i, j) = \lambda_{cls} \cdot P(class_j | pred_i) + \lambda_{L1} \cdot ||b_{i} - \hat{b}_j||_{1} + \lambda_{GIoU} \cdot \mathcal{L}_{GIoU}(b_{i}, \hat{b}_j) $$
+## Theory Snapshot
+- Matching cost fuses class evidence and geometric distance for each query-target pair.
+- This cost matrix is the objective surface used by Hungarian assignment.
+- Full weighted-cost derivation is in [researches/problem_08/theory.md](researches/problem_08/theory.md).
 
 ## Checker
 ```bash

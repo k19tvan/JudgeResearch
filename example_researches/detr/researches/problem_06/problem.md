@@ -20,12 +20,10 @@
 - Cross-attention: Queries equal `tgt` + `query_embed`. Keys combine `memory` + `pos_embed`. Values equal `memory`.
 - Apply appropriate FFN, LayerNorms, and residual connections.
 
-## Theory
-Cross-Attention operation logic:
-$$ Q_{cross} = tgt + query\_embed $$
-$$ K_{cross} = memory + pos\_embed $$
-$$ V_{cross} = memory $$
-This structural separation effectively decouples "what to look for" ($Q$) and "where it is" ($K$) from the raw visual semantic data ($V$).
+## Theory Snapshot
+- Decoder self-attention coordinates object queries; cross-attention grounds them to encoded image memory.
+- Query embeddings represent object slots, while memory carries global scene context.
+- Full decoder math and tensor-axis semantics are in [researches/problem_06/theory.md](researches/problem_06/theory.md).
 
 ## Checker
 ```bash
