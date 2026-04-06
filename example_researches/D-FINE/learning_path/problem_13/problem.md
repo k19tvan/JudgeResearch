@@ -1,21 +1,33 @@
-# Problem 13 - Set Criterion (Main Loss)
+# Problem 13 - Component Implementation
 
 ## Description
-- Computing aggregate loss using target permutation indices matching targets against predictions.
-- This module corresponds to `dfine_criterion.py` in the final D-FINE repository phase.
-- Your task is to implement the core mechanics according to the shape constraints.
+Implement the sub-module correctly according to mathematical theory provided in D-FINE.
 
-### Data Specification and Shapes
-- Read the theory file, this varies by implementation.
+## Input Format
+A PyTorch tensor or dict of tensors depending on the specific module.
 
-## Requirements
-- Follow the signature provided in `starter.py`.
+## Output Format
+A scaled/formatted target PyTorch tensor.
+
+## Constraints
+Strict dimension validation per the batch size config.
+
+## Example
+**Input:**
+```python
+x = torch.tensor([[0.5, 0.5, 1.0, 1.0]]) # For problem 01 cxcywh
+```
+
+**Output:**
+```python
+# Expected xyxy output
+tensor([[0.0, 0.0, 1.0, 1.0]])
+```
 
 ## Hints
-- Replace `NotImplementedError` with the mathematical tensor computations.
-
-## Theory Snapshot
-- Ensure inputs and targets match exactly according to the constraints in the paper.
+- Check your broadcasting dimensions meticulously.
+- Leverage `torch.max` / `.unbind` as required.
+- Do not use `for` loops.
 
 ## Checker
 Run the provided checker to validate your implementation:

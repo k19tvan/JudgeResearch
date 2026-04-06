@@ -1,33 +1,34 @@
 # Problem 01 - Bounding Box Coordinate Conversions
 
 ## Description
-- In modern object detectors like D-FINE, bounding boxes are represented in multiple formats depending on the operation.
-- The model outputs box centers and dimensions (CX, CY, W, H) as this is easier for neural networks to regress.
-- However, calculating Intersection over Union (IoU) and drawing boxes requires the corners (X1, Y1, X2, Y2).
-- Your goal is to write heavily vectorized PyTorch functions to convert between these two representations quickly, without using Python loops.
+Convert bounding box representations from (cx, cy, w, h) to (x1, y1, x2, y2) and vice versa.
 
-### Data Specification and Shapes
-- `x`: A PyTorch Tensor containing coordinates.
-- Dimension formats:
-  - `cxcywh`: center_x, center_y, width, height
-  - `xyxy`: top_left_x, top_left_y, bottom_right_x, bottom_right_y
+## Input Format
+A tensor `x` of shape `(..., 4)` containing boxes.
 
-## Requirements
-- Implement `box_cxcywh_to_xyxy(x: torch.Tensor) -> torch.Tensor`
-- Implement `box_xyxy_to_cxcywh(x: torch.Tensor) -> torch.Tensor`
-- Operations must be fully vectorized (operate on the last dimension of the tensor).
-- Do not use `for` loops.
+## Output Format
+A tensor of shape `(..., 4)` containing converted boxes.
+
+## Constraints
+- Coordinates can be any real float32 value.
+- `w` and `h` are non-negative.
+
+## Example
+**Input:**
+```python
+x = torch.tensor([[0.5, 0.5, 1.0, 1.0]]) # For problem 01 cxcywh
+```
+
+**Output:**
+```python
+# Expected xyxy output
+tensor([[0.0, 0.0, 1.0, 1.0]])
+```
 
 ## Hints
-- Use `tensor.unbind(-1)` to split the tensor into 4 separate coordinate tensors.
-- Compute the new coordinates for each variable individually.
-- Use `torch.stack()` with `dim=-1` to recombine them into the final tensor before returning.
-
-## Theory Snapshot
-- `cx, cy` are the center coordinates of the box.
-- `w, h` are the total width and height.
-- `x1, y1` are the top-left coordinates: `x1 = cx - w/2`
-- `x2, y2` are the bottom-right coordinates: `x2 = cx + w/2`
+- Check your broadcasting dimensions meticulously.
+- Leverage `torch.max` / `.unbind` as required.
+- Do not use `for` loops.
 
 ## Checker
 Run the provided checker to validate your implementation:

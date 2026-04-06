@@ -58,27 +58,31 @@ Output a table named Learning Path Overview with columns:
 [ ID | Problem Name | Theory Goal | Coding Goal | Depends On | Repo Module Mapped | End-to-End Phase ]
 
 ## Phase 2: Per-Problem File Generation Protocol (Strict)
-For EACH problem, generate exactly 5 files via markdown code blocks.
+For EACH problem, generate exactly 6 files via markdown code blocks.
 
 The first line of every code block must be the exact file path.
 Example:
 // learning_path/problem_01/starter.py
 
 ### File 1: problem.md (35-80 lines)
-Must use exactly these headings:
+Must use exactly these headings (Competitive Programming Style):
 - # Problem XX - <Name>
-- ## Description (direct bullets only)
-- ### Data Specification and Shapes
-- ## Requirements
+- ## Description
+- ## Input Format
+- ## Output Format
+- ## Constraints
+- ## Example
 - ## Hints
-- ## Theory Snapshot
 - ## Checker
 
 Hard requirements for problem.md:
-- include strict shape contracts,
-- put all TODOs and implementation hints in the ## Hints section (do NOT put TODOs in starter.py),
-- include 2-6 concise theory bullets (easy to understand),
-- include exact command for checker.
+- Treat the problem like a Codeforces/VNOI task. Input/Output must be perfectly clear and strict.
+- `Input Format`: Explicitly define function arguments, tensor shapes (e.g., `(B, N, C)`), and dtypes.
+- `Output Format`: Explicitly define return values, expected shapes, and dtypes.
+- `Constraints`: List tensor value ranges (e.g., values in `[0, 1]`), shape limits, or precondition edge cases.
+- `Example`: Provide a concrete, manually traceable input & output tensor combination.
+- Put all TODOs and implementation hints in the `## Hints` section (do NOT put TODOs in starter.py).
+- Include exact command for checker.
 
 ### File 2: theory.md (mandatory and detailed)
 Must use exactly these headings:
@@ -115,6 +119,11 @@ Must use exactly:
 - # Problem XX Questions
 - ## Multiple Choice (5 short questions)
 - ## Answer Key (single line format, e.g., 1.B 2.A 3.D 4.C 5.A)
+
+### File 6: solution.py
+- Complete and fully functional implementation of the problem.
+- Must pass the `checker.py` perfectly.
+- Clean and well-commented code.
 
 ## Phase 3: Integration Tutorial (Mandatory)
 After all subproblems are generated, create:
