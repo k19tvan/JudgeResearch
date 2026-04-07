@@ -34,6 +34,17 @@ def box_iou(boxes1: Tensor, boxes2: Tensor):
     area1 = box_area(boxes1)
     area2 = box_area(boxes2)
     
+    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2]) # N x M x 2
+    rb = torch.min(boxes1[:, None, :2], boxes2[:, :2]) # N x M x 2
+
+    wh = (rb - lt).clamp(min=0) # N x M x 2 (w, h)
+    inter = wh[:, :, 0] * wh[:, :, 1] # N x M
+    
+    # N x 1 + M - N x M
+    union = area1[:, None] + area2 - inter 
+    iou = inter / union.clamp(min=1e-6) 
+    
+    return iou, union
     raise NotImplementedError
 
 

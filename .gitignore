@@ -1,0 +1,10 @@
+example_researches/D-FINE/learning_path/dfine_mini/checkpoints
+example_researches/D-FINE/learning_path/dfine_mini/data
+# dataset
+*.zip
+*.tar.gz
+data/
+*.log
+
+# model
+.pt
