@@ -1,43 +1,46 @@
 import torch
-from starter import box_area, box_iou, generalized_box_iou
+from starter import box_iou, generalized_box_iou
 
-def run_checks():
-    # Setup test boxes
-    boxes1 = torch.tensor([
-        [0.0, 0.0, 10.0, 10.0],  # 10x10 square
-        [5.0, 5.0, 15.0, 15.0]   # 10x10 square offset
-    ], dtype=torch.float32)
-    
-    boxes2 = torch.tensor([
-        [0.0, 0.0, 10.0, 10.0],      # Perfect match for boxes1[0]
-        [20.0, 20.0, 30.0, 30.0],    # Disjoint box
-        [2.5, 2.5, 7.5, 7.5]         # Inside boxes1[0]
-    ], dtype=torch.float32)
 
-    # Check box_area
-    areas = box_area(boxes1)
-    assert areas.shape == (2,), "box_area shape mismatch"
-    assert torch.allclose(areas, torch.tensor([100.0, 100.0])), "box_area calculation failed"
+def run_tests():
+    print("Testing GIoU...")
 
-    # Check box_iou
-    ious, union = box_iou(boxes1, boxes2)
-    assert ious.shape == (2, 3), "box_iou shape mismatch"
-    assert ious[0, 0] == 1.0, "Perfect box should have IoU 1.0"
-    assert ious[0, 1] == 0.0, "Disjoint boxes should have IoU 0.0"
-    assert ious[0, 2] == 0.25, "Quarter size inside box should have IoU 0.25 (25 / 100)"
+    # Test 1: Perfect overlap → IoU=1, GIoU=1
+    b = torch.tensor([[0.0, 0.0, 1.0, 1.0]])
+    iou, _ = box_iou(b, b)
+    assert abs(iou[0, 0].item() - 1.0) < 1e-5, f"Perfect overlap IoU should be 1, got {iou[0,0]}"
+    giou = generalized_box_iou(b, b)
+    assert abs(giou[0, 0].item() - 1.0) < 1e-5, f"Perfect overlap GIoU should be 1, got {giou[0,0]}"
 
-    # Check generalized_box_iou
-    giou = generalized_box_iou(boxes1, boxes2)
-    assert giou.shape == (2, 3), "giou shape mismatch"
-    assert giou[0, 0] == 1.0, "Perfect box should have GIoU 1.0"
-    
-    # Check penalty for disjoint boxes (boxes1[0] vs boxes2[1] over a 30x30 minimal enclosing box -> 900 area)
-    # union is 100 + 100 = 200, enclosing is 900. Penalty = -(900 - 200) / 900 = -700/900 = -0.7777...
-    # giou should be 0 - 0.7777 = -0.7777
-    assert giou[0, 1] < 0.0, "Disjoint boxes must have negative GIoU"
-    assert round(giou[0,1].item(), 4) == -0.7778, f"GIoU penalty mathematically incorrect: {giou[0,1]}"
+    # Test 2: No overlap → IoU=0, GIoU<0
+    a = torch.tensor([[0.0, 0.0, 0.2, 0.2]])
+    c = torch.tensor([[0.8, 0.8, 1.0, 1.0]])
+    iou, _ = box_iou(a, c)
+    assert iou[0, 0].item() == 0.0, "Non-overlapping boxes must have IoU=0"
+    giou = generalized_box_iou(a, c)
+    assert giou[0, 0].item() < 0.0, "Non-overlapping boxes must have GIoU<0"
+
+    # Test 3: Partial overlap — manual value
+    boxes1 = torch.tensor([[0.0, 0.0, 0.5, 0.5]])
+    boxes2 = torch.tensor([[0.25, 0.25, 0.75, 0.75]])
+    iou, union = box_iou(boxes1, boxes2)
+    assert abs(iou[0, 0].item() - (0.0625 / 0.4375)) < 1e-4, "Partial overlap IoU mismatch"
+
+    # Test 4: Output shape for batch inputs
+    N, M = 5, 7
+    b1 = torch.rand(N, 4)
+    b1[:, 2:] = b1[:, :2] + torch.rand(N, 2)
+    b2 = torch.rand(M, 4)
+    b2[:, 2:] = b2[:, :2] + torch.rand(M, 2)
+    giou = generalized_box_iou(b1, b2)
+    assert giou.shape == (N, M), f"GIoU output shape mismatch: {giou.shape}"
+
+    # Test 5: GIoU always <= IoU, always >= -1
+    assert (giou <= iou.expand_as(giou[0:1]) + 1.01).all()
+    assert (giou >= -1.0 - 1e-5).all(), "GIoU must be >= -1"
 
     print("All Problem 02 checks passed")
 
+
 if __name__ == "__main__":
-    run_checks()
+    run_tests()

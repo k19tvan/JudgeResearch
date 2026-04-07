@@ -1,25 +1,13 @@
 import torch
 
 def box_cxcywh_to_xyxy(x: torch.Tensor) -> torch.Tensor:
-    """
-    Converts bounding boxes from (cx, cy, w, h) to (x1, y1, x2, y2) format.
-    
-    Args:
-        x: Tensor of shape (..., 4) containing boxes in cxcywh format.
-        
-    Returns:
-        Tensor of shape (..., 4) containing boxes in xyxy format.
-    """
-    raise NotImplementedError("Implement bounding box conversion.")
+    x_c, y_c, w, h = x.unbind(-1)
+    b = [(x_c - 0.5 * w), (y_c - 0.5 * h),
+         (x_c + 0.5 * w), (y_c + 0.5 * h)]
+    return torch.stack(b, dim=-1)
 
 def box_xyxy_to_cxcywh(x: torch.Tensor) -> torch.Tensor:
-    """
-    Converts bounding boxes from (x1, y1, x2, y2) to (cx, cy, w, h) format.
-    
-    Args:
-        x: Tensor of shape (..., 4) containing boxes in xyxy format.
-        
-    Returns:
-        Tensor of shape (..., 4) containing boxes in cxcywh format.
-    """
-    raise NotImplementedError("Implement bounding box conversion.")
+    x0, y0, x1, y1 = x.unbind(-1)
+    b = [(x0 + x1) / 2, (y0 + y1) / 2,
+         (x1 - x0), (y1 - y0)]
+    return torch.stack(b, dim=-1)

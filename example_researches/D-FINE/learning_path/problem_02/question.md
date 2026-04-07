@@ -2,35 +2,35 @@
 
 ## Multiple Choice
 
-1. What shape results from broadcasting `boxes1[:, None, :]` and `boxes2[None, :, :]` across `N` and `M` pairs of boxes?
-A. `(N, M, 4)`
-B. `(N+M, 4)`
-C. `(4, N, M)`
-D. `(N*M, 4)`
+1. What is the range of GIoU values?
+   A. `[0, 1]`
+   B. `[-1, 0]`
+   C. `[-1, 1]`
+   D. `(-∞, 1]`
 
-2. Why do we clamp the intersection width/height to a minimum of 0.0 using `torch.clamp(.., min=0.0)`?
-A. Because neural networks cannot output negative numbers.
-B. To prevent disjoint boxes from contributing negative areas to the intersection sum, which ruins the union calculation.
-C. It acts as an activation function (ReLU) for the output layer.
-D. To prevent divide-by-zero errors in hardware.
+2. When two predicted boxes perfectly overlap their ground-truth, what value does GIoU return?
+   A. `0`
+   B. `0.5`
+   C. `1`
+   D. `-1`
 
-3. Standard IoU is highly bounded. What happens to standard IoU when two boxes are far apart?
-A. It approaches -1.
-B. It equals 0, and the gradient vanishes, leaving the model confused about which direction to optimize.
-C. It equals exactly 1.
-D. It grows infinitely large (nan).
+3. Why is the enclosing box needed in the GIoU formula?
+   A. To normalize the prediction heads
+   B. To provide gradient signal when boxes do not overlap (IoU=0)
+   C. To increase bounding box regression speed
+   D. To replace L1 loss in the model
 
-4. Which part of the GIoU equation produces the scale-invariant penalty?
-A. `Area(Intersection) / Area(Union)`
-B. `(Area(C) - Area(Union)) / Area(C)`
-C. `Area(C) - Area(Intersection)`
-D. `Area(Intersection) + Area(Union)`
+4. In D-FINE's Hungarian Matcher, the GIoU cost is used as:
+   A. `cost_giou = GIoU`
+   B. `cost_giou = 1 - GIoU`
+   C. `cost_giou = -GIoU`
+   D. `cost_giou = exp(-GIoU)`
 
-5. If a predicted box perfectly encloses and matches the truth box, what is the value of both its IoU and GIoU?
-A. 0.0
-B. 0.5
-C. 1.0
-D. 100.0
+5. If `boxes1` has shape `(N, 4)` and `boxes2` has shape `(M, 4)`, what is the shape of the pairwise GIoU matrix?
+   A. `(N+M, 4)`
+   B. `(N,)`
+   C. `(N, M)`
+   D. `(M, N, 4)`
 
 ## Answer Key
-1.A 2.B 3.B 4.B 5.C
+1.C 2.C 3.B 4.C 5.C

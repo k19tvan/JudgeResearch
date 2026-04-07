@@ -1,38 +1,77 @@
-# Problem 02 Theory - Generalized IoU (GIoU)
+# Problem 02 Theory - Generalized Intersection over Union (GIoU)
 
 ## Core Definitions
-While absolute coordinate losses (like L1) are useful, they do not perfectly correlate with human perception of bounding box quality. IoU is scale-invariant. GIoU adds a penalty when boxes are disjoint, which prevents vanishing gradients.
+- **IoU (Intersection over Union)**: The ratio of the area of intersection relative to the area of union of two bounding boxes. It is the standard spatial overlap metric.
+- **GIoU**: Extends IoU by adding a penalty term that accounts for the area of the minimum enclosing box that is NOT covered by either box. This ensures that even non-overlapping boxes return a meaningful gradient.
+- **In D-FINE**: GIoU appears in (1) the Hungarian Matcher cost matrix as `cost_giou = -GIoU(pred, gt)` and (2) in `SetCriterion.loss_boxes` as `loss_giou = 1 - diag(GIoU)`.
 
 ## Variables and Shape Dictionary
 | Variable | Shape | Meaning |
-| :--- | :--- | :--- |
-| `boxes1` | `(N, 4)` | First set of boxes (e.g., ground truth). |
-| `boxes2` | `(M, 4)` | Second set of boxes (e.g., predictions). |
-| `area1`, `area2` | `(N,)`, `(M,)` | Surface area of each box. |
-| `inter` | `(N, M)` | Pairwise intersection area. |
-| `union` | `(N, M)` | Pairwise union area. |
-| `iou` | `(N, M)` | Pairwise Intersection over Union. |
-| `enclosing_area` | `(N, M)` | Area of the smallest convex hull enclosing both boxes. |
+|---|---|---|
+| `boxes1` | `(N, 4)` | N predicted boxes in `xyxy` format |
+| `boxes2` | `(M, 4)` | M ground truth boxes in `xyxy` format |
+| `lt` | `(N, M, 2)` | Intersection top-left corner (element-wise max) |
+| `rb` | `(N, M, 2)` | Intersection bottom-right corner (element-wise min) |
+| `inter` | `(N, M)` | Intersection area |
+| `union` | `(N, M)` | Union area |
+| `iou` | `(N, M)` | Standard IoU matrix |
+| `encl_lt` | `(N, M, 2)` | Enclosing box top-left (element-wise min) |
+| `encl_rb` | `(N, M, 2)` | Enclosing box bottom-right (element-wise max) |
+| `encl_area` | `(N, M)` | Area of minimum enclosing box |
+| `giou` | `(N, M)` | GIoU matrix in `[-1, 1]` |
 
 ## Main Equations (LaTeX)
 
-Standard IoU is the ratio of Intersection area over Union area:
-$$ IoU = \frac{Area(A \cap B)}{Area(A \cup B)} $$
+**Area of each box:**
+$$ \text{area}(b) = (x_2 - x_1) \cdot (y_2 - y_1) $$
 
-Union is calculated as the sum of individual areas minus their intersection:
-$$ Area(A \cup B) = Area(A) + Area(B) - Area(A \cap B) $$
+**Intersection area:**
+$$ \text{inter} = \max(0,\ \min(x_2^A, x_2^B) - \max(x_1^A, x_1^B)) \cdot \max(0,\ \min(y_2^A, y_2^B) - \max(y_1^A, y_1^B)) $$
 
-Generalized IoU adds a penalty based on the smallest enclosing box $C$:
-$$ GIoU = IoU - \frac{Area(C) - Area(A \cup B)}{Area(C)} $$
+**Union area:**
+$$ \text{union} = \text{area}(A) + \text{area}(B) - \text{inter} $$
+
+**Standard IoU:**
+$$ \text{IoU}(A, B) = \frac{\text{inter}}{\text{union}} $$
+
+**GIoU:**
+$$ \text{GIoU}(A, B) = \text{IoU}(A, B) - \frac{|\text{encl}(A,B)| - \text{union}}{|\text{encl}(A,B)|} $$
+
+where $|\text{encl}(A,B)|$ is the area of the smallest axis-aligned bounding box enclosing both $A$ and $B$.
 
 ## Step-by-Step Derivation or Computation Flow
-1. Compute areas of all `boxes1` and `boxes2`.
-2. Compute pairwise intersections: find `max(x1)` and `max(y1)` for top-left, `min(x2)` and `min(y2)` for bottom-right. Clamp coordinates to avoid negative areas.
-3. Compute `union = area1 + area2 - inter`.
-4. Calculate `iou = inter / union`.
-5. Compute the enclosing box $C$ by finding `min(x1, y1)` and `max(x2, y2)`.
-6. Calculate `area_c`.
-7. Compute `giou = iou - (area_c - union) / area_c`.
+1. Compute `area1 = (x2-x1)*(y2-y1)` for each box in `boxes1`, giving shape `(N,)`.
+2. Compute `area2`, giving `(M,)`.
+3. Broadcast: `lt = max(boxes1[:,None,:2], boxes2[:,:2])` → `(N,M,2)`.
+4. `rb = min(boxes1[:,None,2:], boxes2[:,2:])` → `(N,M,2)`.
+5. `wh = clamp(rb - lt, min=0)` → `(N,M,2)`. Multiply channels: `inter = wh[...,0] * wh[...,1]` → `(N,M)`.
+6. `union = area1[:,None] + area2 - inter` → `(N,M)`.
+7. `iou = inter / union` → `(N,M)`.
+8. Enclosing: `encl_lt = min(boxes1[:,None,:2], boxes2[:,:2])`, `encl_rb = max(...)`.
+9. `encl_wh = clamp(encl_rb - encl_lt, min=0)` → `(N,M,2)`.
+10. `encl_area = encl_wh[...,0] * encl_wh[...,1]` → `(N,M)`.
+11. `giou = iou - (encl_area - union) / encl_area`.
+
+## Tensor Shape Flow (Input → Intermediate → Output)
+```
+boxes1: (N, 4)
+boxes2: (M, 4)
+  ↓ broadcast
+lt, rb: (N, M, 2)
+  ↓ clamp → multiply channels
+inter: (N, M)
+union: (N, M)
+  ↓
+iou: (N, M)
+  ↓ + enclosing penalty
+giou: (N, M)
+```
 
 ## Practical Interpretation
-If a network proposes a box completely outside the image where the ground truth is, standard IoU is 0, giving no direction to move. GIoU will gracefully decrease (approaching -1) the further away the predicted box moves, thus giving a smooth gradient path back towards the target object.
+When two predicted boxes don't overlap with any ground truth box, their standard IoU is identically 0 — no gradient flows to improve them. GIoU provides a negative signal (proportional to how far boxes are from each other) that pushes predictions toward ground truth, dramatically accelerating DETR training convergence.
+
+**Mini-example (N=1, M=1):**
+- A = [0, 0, 2, 2], area=4. B = [3, 3, 5, 5], area=4.
+- Intersection = 0. Union = 8. IoU = 0.
+- Enclosing = [0,0,5,5], area=25.
+- GIoU = 0 − (25−8)/25 = −0.68. ← meaningful negative signal!

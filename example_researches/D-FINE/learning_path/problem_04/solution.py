@@ -1,35 +1,26 @@
 import torch
-import torch.nn as nn
-from typing import List
+import torch.nn.functional as F
 
-class HybridEncoderProjectors(nn.Module):
-    """
-    Problem 04: Maps multi-scale CNN backbones to a uniform hidden dimension.
-    """
-    def __init__(self, in_channels: List[int] = [512, 1024, 2048], hidden_dim: int = 256):
-        super().__init__()
-        self.in_channels = in_channels
-        self.hidden_dim = hidden_dim
-        
-        self.input_proj = nn.ModuleList()
-        for in_c in in_channels:
-            proj = nn.Sequential(
-                nn.Conv2d(in_c, hidden_dim, kernel_size=1, bias=False),
-                nn.BatchNorm2d(hidden_dim)
-            )
-            self.input_proj.append(proj)
-            
-    def forward(self, features: List[torch.Tensor]) -> List[torch.Tensor]:
-        """
-        Args:
-            features: List of tensors from backbone. E.g. [ (B, 512, H1, W1), (B, 1024, H2, W2), (B, 2048, H3, W3) ]
-        Returns:
-            List of projected tensors, all with `hidden_dim` channels.
-        """
-        assert len(features) == len(self.input_proj), "Mismatched number of features and projectors"
-        
-        out_features = []
-        for i, proj in enumerate(self.input_proj):
-            out_features.append(proj(features[i]))
-            
-        return out_features
+
+def sigmoid_focal_loss(inputs, targets, alpha=0.25, gamma=2.0):
+    p = torch.sigmoid(inputs)
+    ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
+    p_t = p * targets + (1 - p) * (1 - targets)
+    loss = ce_loss * ((1 - p_t) ** gamma)
+    alpha_t = alpha * targets + (1 - alpha) * (1 - targets)
+    return (alpha_t * loss).mean()
+
+
+def varifocal_loss(pred_logit, gt_score, label, num_classes, alpha=0.75, gamma=2.0):
+    pred_score = torch.sigmoid(pred_logit)                          # (N, C)
+    one_hot = F.one_hot(label, num_classes=num_classes).float()     # (N, C)
+
+    # Soft target: positive = IoU score, negative = 0
+    target = one_hot * gt_score.unsqueeze(-1)                       # (N, C)
+
+    # Weight: positive = gt_score, negative = alpha * p^gamma
+    weight = alpha * pred_score.pow(gamma) * (1 - one_hot) + one_hot * gt_score.unsqueeze(-1)
+
+    return F.binary_cross_entropy_with_logits(
+        pred_logit, target, weight=weight, reduction="none"
+    )
