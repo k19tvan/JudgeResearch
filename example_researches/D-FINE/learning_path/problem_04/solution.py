@@ -22,5 +22,5 @@ def varifocal_loss(pred_logit, gt_score, label, num_classes, alpha=0.75, gamma=2
     weight = alpha * pred_score.pow(gamma) * (1 - one_hot) + one_hot * gt_score.unsqueeze(-1)
 
     return F.binary_cross_entropy_with_logits(
-        pred_logit, target, weight=weight, reduction="none"
+        pred_logit, target, weight=weight.detach(), reduction="none"
     )
