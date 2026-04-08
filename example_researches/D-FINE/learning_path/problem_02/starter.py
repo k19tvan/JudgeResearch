@@ -13,7 +13,7 @@ def box_area(boxes: Tensor) -> Tensor:
         Tensor of shape (N,) containing areas
     """
     
-    return (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, -1])
+    return (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
 
     raise NotImplementedError
 
@@ -35,7 +35,7 @@ def box_iou(boxes1: Tensor, boxes2: Tensor):
     area2 = box_area(boxes2)
     
     lt = torch.max(boxes1[:, None, :2], boxes2[:, :2]) # N x M x 2
-    rb = torch.min(boxes1[:, None, :2], boxes2[:, :2]) # N x M x 2
+    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:]) # N x M x 2
 
     wh = (rb - lt).clamp(min=0) # N x M x 2 (w, h)
     inter = wh[:, :, 0] * wh[:, :, 1] # N x M
@@ -45,7 +45,6 @@ def box_iou(boxes1: Tensor, boxes2: Tensor):
     iou = inter / union.clamp(min=1e-6) 
     
     return iou, union
-    raise NotImplementedError
 
 
 def generalized_box_iou(boxes1: Tensor, boxes2: Tensor) -> Tensor:
@@ -60,4 +59,15 @@ def generalized_box_iou(boxes1: Tensor, boxes2: Tensor) -> Tensor:
     Returns:
         Tensor of shape (N, M) containing GIoU values in [-1, 1]
     """
-    raise NotImplementedError
+    iou, union = box_iou(boxes1, boxes2)
+    
+    lt = torch.min(boxes1[:, None, :2], boxes2[:, :2])
+    rb = torch.max(boxes1[:, None, 2:], boxes2[:, 2:])
+    
+    wh = (rb - lt).clamp(min=0)
+    area = wh[:, :, 0] * wh[:, :, 1] 
+    
+    return iou - (area - union) / area.clamp(min=1e-6)
+    
+
+

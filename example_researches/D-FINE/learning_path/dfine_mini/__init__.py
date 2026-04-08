@@ -3,9 +3,11 @@
 from .box_ops import box_cxcywh_to_xyxy, box_xyxy_to_cxcywh
 from .iou import box_area, box_iou, generalized_box_iou
 from .losses import sigmoid_focal_loss, varifocal_loss
+from .fgl_loss import bbox2distance, unimodal_distribution_focal_loss, FGLLoss
 from .matcher import HungarianMatcher
 from .criterion import SetCriterion
 from .backbone import HGNetV2Stem
+from .neck import SimpleNeck, FPNNeck
 from .positional_encoding import PositionEmbeddingSine2D
 from .attention import MultiHeadAttention
 from .encoder import TransformerEncoderLayer
@@ -13,7 +15,7 @@ from .decoder import TransformerDecoderLayer
 from .model import DFINEMini
 from .train import make_synthetic_batch, train_one_epoch, evaluate
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __all__ = [
     "box_cxcywh_to_xyxy",
     "box_xyxy_to_cxcywh",
@@ -22,9 +24,14 @@ __all__ = [
     "generalized_box_iou",
     "sigmoid_focal_loss",
     "varifocal_loss",
+    "bbox2distance",
+    "unimodal_distribution_focal_loss",
+    "FGLLoss",
     "HungarianMatcher",
     "SetCriterion",
     "HGNetV2Stem",
+    "SimpleNeck",
+    "FPNNeck",
     "PositionEmbeddingSine2D",
     "MultiHeadAttention",
     "TransformerEncoderLayer",

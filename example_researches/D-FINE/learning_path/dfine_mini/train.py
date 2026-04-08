@@ -49,45 +49,71 @@ def setup_logger(log_dir, name='training'):
     return logger, str(log_file)
 
 
-def train_one_epoch(model, criterion, matcher, optimizer, data_loader, device, logger=None):
-    """Run one full training epoch."""
+def train_one_epoch(model, criterion, matcher, optimizer, data_loader, device, logger=None, use_multi_layer=False):
+    """Run one full training epoch.
+    
+    Args:
+        model: DFINEMini model
+        criterion: SetCriterion for loss computation
+        matcher: HungarianMatcher for bipartite matching
+        optimizer: Optimization algorithm
+        data_loader: Training data loader
+        device: Device to train on
+        logger: Optional logger for progress
+        use_multi_layer: If True, use multi-layer supervision (matcher passed to criterion).
+                        If False, call matcher externally and pass indices to criterion.
+    """
     model.train()
-    totals = {"loss_vfl": 0.0, "loss_bbox": 0.0, "loss_giou": 0.0}
+    
+    # Track main losses (will accumulate all losses)
+    loss_keys = ["loss_vfl", "loss_bbox", "loss_giou", "loss_fgl"]
+    totals = {k: 0.0 for k in loss_keys}
     batch_count = 0
     total_batches = len(data_loader)
     
     for batch_idx, (images, targets) in enumerate(data_loader):
-        images  = images.to(device)
-        targets = [{k: v.to(device) for k,v in t.items()} for t in targets]
+        images = images.to(device)
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         
         optimizer.zero_grad()
         out = model(images)
-        indices = matcher(out, targets)["indices"]
-        losses  = criterion(out, targets, indices)
-        total   = sum(losses.values())
-        total.backward()
+        
+        # Multi-layer or single-layer loss computation
+        if use_multi_layer:
+            # Mode 2: Pass matcher to criterion for internal multi-layer handling
+            losses = criterion(out, targets, matcher=matcher)
+        else:
+            # Mode 1: Traditional mode - compute indices separately
+            indices = matcher(out, targets)["indices"]
+            losses = criterion(out, targets, indices=indices)
+        
+        total_loss = sum(losses.values())
+        total_loss.backward()
         optimizer.step()
         
-        # Extract individual loss values
-        loss_vfl = losses["loss_vfl"].item()
-        loss_bbox = losses["loss_bbox"].item()
-        loss_giou = losses["loss_giou"].item()
-        
-        for k in totals:
-            totals[k] += losses[k].item()
+        # Accumulate losses
+        for loss_key in loss_keys:
+            if loss_key in losses:
+                totals[loss_key] += losses[loss_key].item()
         batch_count += 1
         
         # Log batch progress every 10 batches or at end
         if logger and (batch_idx % 10 == 0 or batch_idx == total_batches - 1):
             progress_pct = 100.0 * (batch_idx + 1) / total_batches
-            avg_vfl = totals["loss_vfl"] / batch_count
-            avg_bbox = totals["loss_bbox"] / batch_count
-            avg_giou = totals["loss_giou"] / batch_count
-            logger.info(f"    [Train] Batch {batch_idx+1}/{total_batches} ({progress_pct:5.1f}%) | "
-                       f"VFL: {loss_vfl:.6f} | BBox: {loss_bbox:.6f} | GIoU: {loss_giou:.6f}")
+            log_msg = f"[Train] Batch {batch_idx+1}/{total_batches} ({progress_pct:5.1f}%) | "
+            
+            # Format available losses
+            loss_strs = []
+            for k in ["loss_vfl", "loss_bbox", "loss_giou", "loss_fgl"]:
+                if k in losses:
+                    loss_strs.append(f"{k.split('_')[1][:3]}: {losses[k].item():.6f}")
+            
+            log_msg += " | ".join(loss_strs)
+            logger.info(log_msg)
     
+    # Compute average metrics
     n = max(len(data_loader), 1)
-    avg_metrics = {f"avg_{k}": v / n for k, v in totals.items()}
+    avg_metrics = {f"avg_{k}": v / n for k, v in totals.items() if v > 0}
     
     return avg_metrics
 
@@ -245,7 +271,15 @@ if __name__ == "__main__":
     ).to(device)
     
     matcher = HungarianMatcher()
-    criterion = SetCriterion(num_classes=args.num_classes)
+    # Enable multi-layer supervision by passing matcher to criterion
+    criterion = SetCriterion(
+        num_classes=args.num_classes,
+        matcher=matcher,
+        weight_vfl=1.0,
+        weight_bbox=5.0,
+        weight_giou=2.0,
+        weight_fgl=0.5,  # Enable FGL loss
+    )
     optimizer = torch.optim.AdamW(
         model.parameters(), 
         lr=args.learning_rate, 

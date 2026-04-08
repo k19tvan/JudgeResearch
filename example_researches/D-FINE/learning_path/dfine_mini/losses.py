@@ -14,7 +14,13 @@ def sigmoid_focal_loss(inputs, targets, alpha=0.25, gamma=2.0):
 
 
 def varifocal_loss(pred_logit, gt_score, label, num_classes, alpha=0.75, gamma=2.0):
-    """Varifocal Loss: Focal loss variant using IoU quality scores as soft targets."""
+    """Varifocal Loss: Focal loss variant using IoU quality scores as soft targets.
+    
+    IMPORTANT: This function returns per-element loss (not reduced).
+    Caller is responsible for normalization/aggregation, typically:
+        loss = varifocal_loss(...).mean(dim=-1)  # Per-query mean
+        return loss.sum() / num_boxes           # Then normalize by box count
+    """
     pred_score = torch.sigmoid(pred_logit)                          # (N, C)
     one_hot = F.one_hot(label, num_classes=num_classes).float()     # (N, C)
 
