@@ -1,7 +1,7 @@
-const AUTH_API_URL = "http://localhost:57100/api/auth";
-const PROBLEM_API_URL = "http://localhost:57100/api/problems";
-const ROADMAP_API_URL = "http://localhost:57100/api/roadmaps";
-const USER_API_URL = "http://localhost:57100/api/users";
+const AUTH_API_URL = "http://localhost:21081/api/auth";
+const PROBLEM_API_URL = "http://localhost:21081/api/problems";
+const ROADMAP_API_URL = "http://localhost:21081/api/roadmaps";
+const USER_API_URL = "http://localhost:21081/api/users";
 
 export const registerUser = async (userData) => {
   const response = await fetch(`${AUTH_API_URL}/register`, {

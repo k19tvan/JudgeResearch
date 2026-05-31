@@ -22,14 +22,14 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*", "http://localhost:51083", "http://localhost:18026"],
+    allow_origins=["*", "http://localhost:21080"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 storage_path = "storage/"
-deepwiki_url = "http://localhost:18026"
+deepwiki_url = "http://localhost:21082"
 load_dotenv()
 
 def ensure_schema_migrations():
