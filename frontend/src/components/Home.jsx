@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom"; // Gộp chung các import từ react-router-dom
 import ProblemsTab from "./tabs/ProblemsTab";
 import SubmissionsTab from "./tabs/SubmissionsTab";
 import UsersTab from "./tabs/UsersTab";
@@ -9,7 +9,6 @@ import ResearchTab from "./tabs/ResearchTab";
 import ProfileTab from "./tabs/ProfileTab";
 import MyRequestsTab from "./tabs/MyRequestsTab";
 import AdminQueueTab from "./tabs/AdminQueueTab";
-
 
 function IntroTab({ isLight }) {
   return (
@@ -146,16 +145,24 @@ const TABS = [
 
 export default function Home() {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Khai báo các State sạch sẽ (Không lặp lại)
   const [username, setUsername] = useState("");
   const [activeTab, setActiveTab] = useState("HOME");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem("home_theme") || "dark");
-  
-  // Đọc vai trò người dùng (Mặc định là 'user' nếu chưa phân quyền)
   const [userRole, setUserRole] = useState(() => localStorage.getItem("user_role") || "user");
 
   const isLight = theme === "light";
   const c = (darkColor, lightColor) => (isLight ? lightColor : darkColor);
+
+  // Phục hồi Tab hoạt động dựa vào điều hướng lịch sử ở trang khác
+  useEffect(() => {
+    if (location.state?.activeTab) {
+      setActiveTab(location.state.activeTab);
+    }
+  }, [location]);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -187,7 +194,7 @@ export default function Home() {
     });
   };
 
-  // LỌC DANH SÁCH TABS: Chỉ hiển thị các tab tương thích với quyền hiện tại
+  // Lọc danh sách Tabs dựa theo phân quyền người dùng
   const filteredTabs = TABS.filter((tab) => {
     if (tab.role) {
       return tab.role === userRole;
@@ -287,8 +294,7 @@ export default function Home() {
             )}
           </div>
 
-<nav style={{ flex: 1, padding: "12px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
-            {/* THAY TẠI ĐÂY: Sử dụng filteredTabs thay cho TABS */}
+          <nav style={{ flex: 1, padding: "12px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
             {filteredTabs.map((tab) => {
               const isActive = activeTab === tab.key;
               return (

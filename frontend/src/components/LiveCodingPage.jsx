@@ -299,7 +299,7 @@ export default function LiveCodingPage() {
         </div>
         <button
           type="button"
-          onClick={() => navigate("/")}
+          onClick={() => navigate("/", { state: { activeTab: "PROBLEMS" } })}
           className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-slate-600 transition"
         >
           BACK

@@ -155,7 +155,7 @@ export default function ResearchRoadmapPage({ mode }) {
             </div>
             <button
               type="button"
-              onClick={() => navigate(previousPath)}
+              onClick={() => navigate("/", { state: { activeTab: "RESEARCH" } })}
               className="rounded-lg border border-emerald-500/40 px-4 py-2 text-sm font-semibold text-emerald-500 hover:bg-emerald-500/10"
             >
               Back
