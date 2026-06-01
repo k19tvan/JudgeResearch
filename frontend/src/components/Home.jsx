@@ -149,6 +149,7 @@ export default function Home() {
 
   // Khai báo các State sạch sẽ (Không lặp lại)
   const [username, setUsername] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState(() => localStorage.getItem("avatar_url") || ""); // <--- ADD THIS
   const [activeTab, setActiveTab] = useState("HOME");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem("home_theme") || "dark");
@@ -157,7 +158,25 @@ export default function Home() {
   const isLight = theme === "light";
   const c = (darkColor, lightColor) => (isLight ? lightColor : darkColor);
 
+
+// <--- ADD THIS HELPER FUNCTION --->
+  const getAvatarUrl = (url) => {
+    if (!url) return null;
+    return url.startsWith("/") ? `http://localhost:21081${url}` : url;
+  };
+  // <--- ADD THIS UPDATE HANDLER --->
+  const handleProfileUpdate = (newUsername, newAvatarUrl) => {
+    setUsername(newUsername);
+    setAvatarUrl(newAvatarUrl);
+    localStorage.setItem("username", newUsername);
+    if (newAvatarUrl) {
+      localStorage.setItem("avatar_url", newAvatarUrl);
+    } else {
+      localStorage.removeItem("avatar_url");
+    }
+  };
   // Phục hồi Tab hoạt động dựa vào điều hướng lịch sử ở trang khác
+  
   useEffect(() => {
     if (location.state?.activeTab) {
       setActiveTab(location.state.activeTab);
@@ -369,9 +388,12 @@ export default function Home() {
                 color: "#fff",
                 flexShrink: 0,
                 fontFamily: "'JetBrains Mono', monospace",
+                overflow: "hidden" // <--- ADD THIS
               }}
             >
-              {initials}
+                            {/* V MODIFY THIS LINE V */}
+              {avatarUrl ? <img src={getAvatarUrl(avatarUrl)} alt="Avatar" style={{width: '100%', height: '100%', objectFit: 'cover'}}/> : initials}
+
             </div>
             {sidebarOpen && (
               <div style={{ flex: 1, overflow: "hidden" }}>
@@ -489,9 +511,10 @@ export default function Home() {
                     fontSize: 10,
                     fontWeight: 700,
                     color: "#fff",
+                    overflow: "hidden" // <--- ADD THIS
                   }}
                 >
-                  {initials}
+                  {avatarUrl ? <img src={getAvatarUrl(avatarUrl)} alt="Avatar" style={{width: '100%', height: '100%', objectFit: 'cover'}}/> : initials}
                 </div>
                 @{username || "user"}
               </div>
@@ -573,7 +596,7 @@ export default function Home() {
               className="tab-content"
               style={{ position: "relative", zIndex: 3, padding: "32px 32px 48px" }}
             >
-              <ActiveTabComponent isLight={isLight} />
+              <ActiveTabComponent isLight={isLight} onProfileUpdate={handleProfileUpdate} />
             </div>
           </main>
         </div>

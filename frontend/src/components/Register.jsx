@@ -24,8 +24,8 @@ export default function Register() {
 
   const validatePassword = (password) => {
     const errors = [];
-    if (password.length < 8) {
-      errors.push("Password must be at least 8 characters long.");
+    if (password.length <= 8) {
+      errors.push("Password must be longer than 8 characters.");
     }
     if (!/\d/.test(password)) {
       errors.push("Password must contain at least one digit (0-9).");
@@ -238,7 +238,7 @@ export default function Register() {
                 onChange={handleChange}
                 aria-invalid={fieldErrors.password ? "true" : "false"}
               />
-              <p className="mt-1 text-xs text-slate-500">At least 8 characters, 1 digit, no spaces.</p>
+              <p className="mt-1 text-xs text-slate-500">More than 8 characters, 1 digit, no spaces.</p>
             </div>
 
             <button

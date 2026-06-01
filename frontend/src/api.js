@@ -4,6 +4,33 @@ const ROADMAP_API_URL = "http://localhost:21081/api/roadmaps";
 const ROADMAP_STEP_API_URL = "http://localhost:21081/api/roadmap-steps"; // Thêm base URL cho roadmap-steps
 const USER_API_URL = "http://localhost:21081/api/users";
 
+const getAuthHeaders = () => {
+  const token = localStorage.getItem("access_token");
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
+
+const refreshAccessToken = async () => {
+  const refreshToken = localStorage.getItem("refresh_token");
+  if (!refreshToken) return null;
+
+  const response = await fetch(`${AUTH_API_URL}/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+
+  if (!response.ok) return null;
+
+  const data = await response.json();
+  if (data.access_token) {
+    localStorage.setItem("access_token", data.access_token);
+  }
+  return data.access_token || null;
+};
+
 export const registerUser = async (userData) => {
   const response = await fetch(`${AUTH_API_URL}/register`, {
     method: "POST",
@@ -228,7 +255,21 @@ export const fetchProblemSubmissions = async (problemId, userId) => {
 // ================ USER PROFILE ENDPOINTS ================
 
 export const fetchUserProfile = async (userId) => {
-  const response = await fetch(`${USER_API_URL}/${userId}`);
+  const sendProfileRequest = () => fetch(`${USER_API_URL}/${userId}`, {
+    headers: getAuthHeaders(),
+  });
+
+  let response = await sendProfileRequest();
+
+  if (response.status === 403) {
+    const errorData = await response.clone().json();
+    if (errorData.detail === "Cannot update another user's account") {
+      const refreshedToken = await refreshAccessToken();
+      if (refreshedToken) {
+        response = await sendProfileRequest();
+      }
+    }
+  }
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -239,15 +280,64 @@ export const fetchUserProfile = async (userId) => {
 };
 
 export const updateUserProfile = async (userId, profileData) => {
-  const response = await fetch(`${USER_API_URL}/${userId}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(profileData),
-  });
+  const sendUpdateRequest = () => {
+    const headers = getAuthHeaders();
+    if (profileData instanceof FormData) {
+      delete headers["Content-Type"];
+    }
+    return fetch(`${USER_API_URL}/${userId}`, {
+      method: "PUT",
+      headers,
+      body: profileData instanceof FormData ? profileData : JSON.stringify(profileData),
+    });
+  };
+
+  let response = await sendUpdateRequest();
+
+  if (response.status === 403) {
+    const errorData = await response.clone().json();
+    if (errorData.detail === "Cannot update another user's account") {
+      const refreshedToken = await refreshAccessToken();
+      if (refreshedToken) {
+        response = await sendUpdateRequest();
+      }
+    }
+  }
 
   if (!response.ok) {
     const errorData = await response.json();
     throw new Error(errorData.detail || "Update user profile failed");
+  }
+
+  const data = await response.json();
+  if (data.access_token) {
+    localStorage.setItem("access_token", data.access_token);
+  }
+  return data;
+};
+
+export const deactivateUserAccount = async (userId) => {
+  const sendDeactivationRequest = () => fetch(`${USER_API_URL}/${userId}/deactivate`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ confirm: true }),
+  });
+
+  let response = await sendDeactivationRequest();
+
+  if (response.status === 403) {
+    const errorData = await response.clone().json();
+    if (errorData.detail === "Cannot update another user's account") {
+      const refreshedToken = await refreshAccessToken();
+      if (refreshedToken) {
+        response = await sendDeactivationRequest();
+      }
+    }
+  }
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Account deactivation failed");
   }
 
   return response.json();

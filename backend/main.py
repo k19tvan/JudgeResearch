@@ -1,10 +1,48 @@
 import datetime
 import secrets
 import sqlite3
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
+import jwt
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Header
+from fastapi.staticfiles import StaticFiles
+import uuid
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, ValidationError
-from backend.auth import hash_password, verify_password, create_access_token, validate_password
+from backend.auth import (
+    ALGORITHM,
+    SECRET_KEY,
+    hash_password,
+    verify_password,
+    create_access_token,
+    validate_password,
+    validate_username,
+)
+from typing import List, Optional
+from backend.file_manager import initialize_problem_storage, save_and_unzip_file, validate_folder_structure
+from time import perf_counter
+from backend.sandbox import execute_user_code, compare_outputs, extract_testcases_from_folders
+import time
+import traceback
+import zipfile
+import shutil
+import re
+import os
+import requests  
+import json
+from prompts.prompt import get_problems_from_repo_prompt, feedback_prompt, create_detailedly_prompt
+from dotenv import load_dotenv
+from json_repair import repair_json
+from fastapi import APIRouter, Form, File, UploadFile, HTTPException, Depends
+from typing import Optional
+import os
+import sqlite3
+import os
+import sys
+import time
+import json
+import sqlite3
+import tempfile
+import subprocess
+from typing import Optional, Any
 from typing import List, Optional
 from backend.file_manager import initialize_problem_storage, save_and_unzip_file, validate_folder_structure
 from time import perf_counter
@@ -40,8 +78,10 @@ from fastapi import Body
 
 os.makedirs("database", exist_ok=True)
 os.makedirs("storage/problems", exist_ok=True)
+os.makedirs("storage/avatars", exist_ok=True)
 
 app = FastAPI()
+app.mount("/avatars", StaticFiles(directory="storage/avatars"), name="avatars")
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,6 +94,7 @@ app.add_middleware(
 storage_path = "storage/"
 deepwiki_url = "http://localhost:21082"
 load_dotenv()
+EMAIL_FORMAT_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 def ensure_schema_migrations():
     conn = sqlite3.connect("database/database.db", check_same_thread=False)
@@ -134,8 +175,14 @@ class SubmissionCreate(BaseModel):
     submitted_code: str
 
 class UserProfileUpdate(BaseModel):
+    username: Optional[str] = None
     display_name: Optional[str] = None
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+class AccountDeactivationRequest(BaseModel):
+    confirm: bool
 
 class RunRequest(BaseModel):
     submitted_code: str
@@ -344,6 +391,11 @@ def extract_python_code(markdown_content: Optional[str]) -> str:
         return match.group(1).strip()
     return markdown_content.strip()
 
+def validate_email_format(email: str) -> Optional[str]:
+    if not EMAIL_FORMAT_PATTERN.match(email):
+        return "Email must be a valid format, e.g., example@domain.com."
+    return None
+
 # ================= API ENDPOINTS =================
 
 @app.post("/api/auth/register")
@@ -406,7 +458,7 @@ def login(credentials: UserLogin, db: sqlite3.Connection = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid username or password")
     
     access_token = create_access_token(
-        data={"sub": user["username"], "role": user["role"]},
+        data={"sub": user["username"], "role": user["role"], "user_id": user["id"]},
         expires_delta=datetime.timedelta(minutes=30)
     )
     
@@ -441,11 +493,11 @@ def refresh(payload: LogoutRequest, db: sqlite3.Connection = Depends(get_db)):
     if not token_record:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
     
-    cursor.execute("SELECT username, role FROM users WHERE id = ?", (token_record["user_id"],))
+    cursor.execute("SELECT id, username, role FROM users WHERE id = ?", (token_record["user_id"],))
     user = cursor.fetchone()
     
     new_access_token = create_access_token(
-        data={"sub": user["username"], "role": user["role"]},
+        data={"sub": user["username"], "role": user["role"], "user_id": user["id"]},
         expires_delta=datetime.timedelta(minutes=30)
     )
     
@@ -1095,23 +1147,279 @@ def get_problem_submissions(
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
+def fetch_user_profile_record(cursor: sqlite3.Cursor, user_id: int) -> dict:
+    cursor.execute("""
+        SELECT id, username, display_name, email, role, avatar_url, created_at, status
+        FROM users
+        WHERE id = ?
+    """, (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return dict(user)
+
+def get_authenticated_identity(authorization: Optional[str]) -> dict:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="Invalid authentication header")
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Authentication token expired")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    return {
+        "username": username,
+        "user_id": payload.get("user_id"),
+    }
+
+def require_account_owner(cursor: sqlite3.Cursor, user_id: int, authorization: Optional[str]) -> dict:
+    user = fetch_user_profile_record(cursor, user_id)
+    authenticated_identity = get_authenticated_identity(authorization)
+    authenticated_user_id = authenticated_identity.get("user_id")
+    authenticated_username = authenticated_identity.get("username", "")
+
+    if authenticated_user_id is not None:
+        try:
+            if int(authenticated_user_id) == int(user_id):
+                return user
+        except (TypeError, ValueError):
+            pass
+
+    if authenticated_username.lower() != user["username"].lower():
+        raise HTTPException(status_code=403, detail="Cannot update another user's account")
+    return user
+
 # Usecase : Get user profile information (for profile page and admin management)
 @app.get("/api/users/profile/{user_id}")
 def get_user_profile(user_id: int, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
     try:
-        cursor.execute("""
-            SELECT id, username, display_name, email, role, avatar_url, created_at, status
-            FROM users
-            WHERE id = ?
-        """, (user_id,))
-        user = cursor.fetchone()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-            
-        return {"status": "success", "data": dict(user)}
+        user = fetch_user_profile_record(cursor, user_id)
+        return {"status": "success", "data": user}
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
+
+# Usecase : Get user profile by id (for account update flow)
+@app.get("/api/users/{user_id}")
+def get_user_profile_by_id(
+    user_id: int,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        user = require_account_owner(cursor, user_id, authorization)
+        return {"status": "success", "data": user}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
+
+# Usecase : Update user profile information
+@app.put("/api/users/{user_id}")
+def update_user_profile(
+    user_id: int,
+    username: Optional[str] = Form(None),
+    display_name: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    password: Optional[str] = Form(None),
+    avatar: Optional[UploadFile] = File(None),
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        user = require_account_owner(cursor, user_id, authorization)
+
+        update_fields = []
+        params = []
+        missing_fields = []
+        effective_display_name = user["display_name"]
+
+        if display_name is not None:
+            effective_display_name = display_name.strip()
+
+        if username is not None:
+            username = username.strip()
+            if not username:
+                missing_fields.append("username")
+            else:
+                username_errors = validate_username(username)
+                if username_errors:
+                    raise HTTPException(status_code=400, detail=" ".join(username_errors))
+
+                cursor.execute(
+                    "SELECT 1 FROM users WHERE id != ? AND LOWER(username) = LOWER(?)",
+                    (user_id, username)
+                )
+                if cursor.fetchone():
+                    raise HTTPException(status_code=400, detail="Username already exists")
+
+                if effective_display_name and username.lower() == effective_display_name.lower():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Username cannot duplicate a display name"
+                    )
+
+                cursor.execute(
+                    "SELECT 1 FROM users WHERE id != ? AND LOWER(display_name) = LOWER(?)",
+                    (user_id, username)
+                )
+                if cursor.fetchone():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Username already exists as a display name"
+                    )
+
+                update_fields.append("username = ?")
+                params.append(username)
+
+        if display_name is not None:
+            display_name = display_name.strip()
+            if not display_name:
+                missing_fields.append("display_name")
+            else:
+                update_fields.append("display_name = ?")
+                params.append(display_name)
+
+        if email is not None:
+            email = email.strip()
+            if not email:
+                missing_fields.append("email")
+            else:
+                email_error = validate_email_format(email)
+                if email_error:
+                    raise HTTPException(status_code=400, detail=email_error)
+
+                cursor.execute(
+                    "SELECT 1 FROM users WHERE id != ? AND LOWER(email) = LOWER(?)",
+                    (user_id, email)
+                )
+                if cursor.fetchone():
+                    raise HTTPException(status_code=400, detail="Email already exists")
+
+                update_fields.append("email = ?")
+                params.append(email)
+
+        if password is not None:
+            if not password or not password.strip():
+                missing_fields.append("password")
+            else:
+                password_errors = validate_password(password)
+                if password_errors:
+                    raise HTTPException(status_code=400, detail=" ".join(password_errors))
+                update_fields.append("password_hash = ?")
+                params.append(hash_password(password))
+
+        # Handle avatar file upload
+        if avatar is not None:
+            # Validate content type
+            allowed_types = {"image/jpeg", "image/png", "image/webp"}
+            if avatar.content_type not in allowed_types:
+                raise HTTPException(status_code=400, detail="Avatar must be JPG, PNG, or WEBP image")
+            # Read file bytes to check size (max 5MB)
+            file_bytes = avatar.file.read()
+            max_size = 5 * 1024 * 1024
+            if len(file_bytes) > max_size:
+                raise HTTPException(status_code=400, detail="Avatar file size must be <= 5MB")
+            # Determine file extension
+            ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+            ext = ext_map.get(avatar.content_type, "jpg")
+            # Generate unique filename
+            filename = f"{uuid.uuid4()}.{ext}"
+            avatar_path = os.path.join("storage", "avatars", filename)
+            # Write file to disk
+            with open(avatar_path, "wb") as out_file:
+                out_file.write(file_bytes)
+            # Set avatar URL (served via /avatars mount)
+            avatar_url = f"/avatars/{filename}"
+            update_fields.append("avatar_url = ?")
+            params.append(avatar_url) 
+            # Reset file cursor for potential later use
+            avatar.file.seek(0)
+
+
+        if missing_fields:
+            missing_text = ", ".join(missing_fields)
+            raise HTTPException(status_code=400, detail=f"Missing required fields: {missing_text}")
+
+        if not update_fields:
+            raise HTTPException(status_code=400, detail="No profile fields provided for update")
+
+        update_fields.append("updated_at = CURRENT_TIMESTAMP")
+        cursor.execute(
+            f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?",
+            params + [user_id]
+        )
+        db.commit()
+        updated_user = fetch_user_profile_record(cursor, user_id)
+        access_token = create_access_token(
+            data={
+                "sub": updated_user["username"],
+                "role": updated_user["role"],
+                "user_id": updated_user["id"],
+            },
+            expires_delta=datetime.timedelta(minutes=30)
+        )
+        return {
+            "status": "success",
+            "message": "Update successful",
+            "access_token": access_token,
+            "token_type": "bearer",
+            "data": updated_user,
+        }
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database execution error: {str(e)}")
+
+# Usecase : Deactivate user account and delete associated data
+@app.post("/api/users/{user_id}/deactivate")
+def deactivate_user_account(
+    user_id: int,
+    payload: AccountDeactivationRequest,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    if not payload.confirm:
+        raise HTTPException(status_code=400, detail="Account deactivation requires confirmation")
+
+    cursor = db.cursor()
+    try:
+        require_account_owner(cursor, user_id, authorization)
+
+        cursor.execute("SELECT id FROM problems WHERE author_id = ?", (user_id,))
+        problem_rows = cursor.fetchall()
+        problem_ids = [row["id"] for row in problem_rows]
+
+        if problem_ids:
+            placeholders = ", ".join(["?"] * len(problem_ids))
+            cursor.execute(
+                f"DELETE FROM roadmap_problems WHERE problem_id IN ({placeholders})",
+                problem_ids
+            )
+
+        cursor.execute("DELETE FROM submissions WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM refresh_tokens WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM draft_problem_sessions WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM roadmaps WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM problems WHERE author_id = ?", (user_id,))
+        cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+        db.commit()
+        return {
+            "status": "success",
+            "message": "Account deactivated and data deleted"
+        }
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database execution error: {str(e)}")
 
 # Usecase : Add admin role to a user (for admin management)
 @app.post("/api/users/make-admin")
