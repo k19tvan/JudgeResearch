@@ -4,7 +4,7 @@ import sqlite3
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field, ValidationError
-from backend.auth import hash_password, verify_password, create_access_token
+from backend.auth import hash_password, verify_password, create_access_token, validate_password
 from typing import List, Optional
 from backend.file_manager import initialize_problem_storage, save_and_unzip_file, validate_folder_structure
 from time import perf_counter
@@ -349,24 +349,51 @@ def extract_python_code(markdown_content: Optional[str]) -> str:
 @app.post("/api/auth/register")
 def register(user: UserRegister, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
-    
-    cursor.execute("SELECT * FROM users WHERE username = ? OR email = ?", (user.username, user.email))
-    if cursor.fetchone(): 
-        raise HTTPException(status_code=400, detail="Username or email already exists")
-    
-    hashed_password = hash_password(user.password)
+
+    username = user.username.strip()
+    display_name = user.display_name.strip()
+    email = user.email.strip()
+    password = user.password
+
+    missing_fields = []
+    if not username:
+        missing_fields.append("username")
+    if not display_name:
+        missing_fields.append("display_name")
+    if not email:
+        missing_fields.append("email")
+    if not password or not password.strip():
+        missing_fields.append("password")
+
+    if missing_fields:
+        missing_text = ", ".join(missing_fields)
+        raise HTTPException(status_code=400, detail=f"Missing required fields: {missing_text}")
+
+    password_errors = validate_password(password)
+    if password_errors:
+        raise HTTPException(status_code=400, detail=" ".join(password_errors))
+
+    cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+    if cursor.fetchone():
+        raise HTTPException(status_code=400, detail="Username already exists")
+
+    cursor.execute("SELECT 1 FROM users WHERE email = ?", (email,))
+    if cursor.fetchone():
+        raise HTTPException(status_code=400, detail="Email already exists")
+
+    hashed_password = hash_password(password)
     
     try:
         cursor.execute(
             """INSERT INTO users (username, password_hash, display_name, email) VALUES (?, ?, ?, ?)""", 
-            (user.username, hashed_password, user.display_name, user.email)
+            (username, hashed_password, display_name, email)
         )
         db.commit()
-    except Exception as e:
+    except Exception:
         db.rollback()
         raise HTTPException(status_code=500, detail="Internal Server Error")
-    
-    return {"message": "User registered successfully"}
+
+    return {"message": "Registration successful"}
         
 @app.post("/api/auth/login")
 def login(credentials: UserLogin, db: sqlite3.Connection = Depends(get_db)):

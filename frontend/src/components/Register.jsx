@@ -13,18 +13,88 @@ export default function Register() {
   });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  const inputBaseClass = "cosmic-input mt-1.5 w-full rounded-lg bg-slate-950/60 px-4 py-2 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 transition-all duration-300";
+  const inputNormalClass = "border border-slate-800 focus:border-cyan-500 focus:ring-cyan-500/20";
+  const inputErrorClass = "border border-red-500 focus:border-red-500 focus:ring-red-500/20";
+
+  const getInputClass = (fieldName) =>
+    `${inputBaseClass} ${fieldErrors[fieldName] ? inputErrorClass : inputNormalClass}`;
+
+  const validatePassword = (password) => {
+    const errors = [];
+    if (password.length < 8) {
+      errors.push("Password must be at least 8 characters long.");
+    }
+    if (!/\d/.test(password)) {
+      errors.push("Password must contain at least one digit (0-9).");
+    }
+    if (/\s/.test(password)) {
+      errors.push("Password must not contain whitespace characters.");
+    }
+    return errors;
+  };
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
+    if (fieldErrors[name]) {
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setSuccess("");
+    setFieldErrors({});
+    const trimmedData = {
+      username: formData.username.trim(),
+      display_name: formData.display_name.trim(),
+      email: formData.email.trim(),
+      password: formData.password,
+    };
+    const missing = [];
+    const nextFieldErrors = {};
+
+    if (!trimmedData.display_name) {
+      missing.push("display name");
+      nextFieldErrors.display_name = true;
+    }
+    if (!trimmedData.email) {
+      missing.push("email");
+      nextFieldErrors.email = true;
+    }
+    if (!trimmedData.username) {
+      missing.push("username");
+      nextFieldErrors.username = true;
+    }
+    if (!trimmedData.password || !trimmedData.password.trim()) {
+      missing.push("password");
+      nextFieldErrors.password = true;
+    }
+
+    if (missing.length > 0) {
+      setFieldErrors(nextFieldErrors);
+      const missingText = missing.join(", ");
+      setError(`Missing required fields: ${missingText}.`);
+      return;
+    }
+
+    const passwordErrors = validatePassword(trimmedData.password);
+    if (passwordErrors.length > 0) {
+      setFieldErrors({ password: true });
+      setError(passwordErrors.join(" "));
+      return;
+    }
     try {
-      await registerUser(formData);
-      setSuccess("Registration successful! Redirecting to secure panel...");
+      await registerUser(trimmedData);
+      setSuccess("Registration successful");
       setTimeout(() => navigate("/login"), 2000); // Chuyển sang trang đăng nhập sau 2 giây
     } catch (err) {
       setError(err.message);
@@ -127,9 +197,10 @@ export default function Register() {
                 type="text"
                 name="display_name"
                 required
-                className="cosmic-input mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-950/60 px-4 py-2 text-slate-100 placeholder-slate-600 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 transition-all duration-300"
+                className={getInputClass("display_name")}
                 placeholder="E.g. Alan Turing"
                 onChange={handleChange}
+                aria-invalid={fieldErrors.display_name ? "true" : "false"}
               />
             </div>
             <div>
@@ -138,9 +209,10 @@ export default function Register() {
                 type="email"
                 name="email"
                 required
-                className="cosmic-input mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-950/60 px-4 py-2 text-slate-100 placeholder-slate-600 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 transition-all duration-300"
+                className={getInputClass("email")}
                 placeholder="email@example.com"
                 onChange={handleChange}
+                aria-invalid={fieldErrors.email ? "true" : "false"}
               />
             </div>
             <div>
@@ -149,9 +221,10 @@ export default function Register() {
                 type="text"
                 name="username"
                 required
-                className="cosmic-input mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-950/60 px-4 py-2 text-slate-100 placeholder-slate-600 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 transition-all duration-300"
+                className={getInputClass("username")}
                 placeholder="Set unique ID..."
                 onChange={handleChange}
+                aria-invalid={fieldErrors.username ? "true" : "false"}
               />
             </div>
             <div>
@@ -160,17 +233,26 @@ export default function Register() {
                 type="password"
                 name="password"
                 required
-                className="cosmic-input mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-950/60 px-4 py-2 text-slate-100 placeholder-slate-600 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 transition-all duration-300"
+                className={getInputClass("password")}
                 placeholder="••••••••"
                 onChange={handleChange}
+                aria-invalid={fieldErrors.password ? "true" : "false"}
               />
+              <p className="mt-1 text-xs text-slate-500">At least 8 characters, 1 digit, no spaces.</p>
             </div>
 
             <button
               type="submit"
               className="w-full mt-4 rounded-lg bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-600 py-3 font-semibold text-white shadow-lg shadow-emerald-500/10 transition-all duration-300 hover:from-cyan-400 hover:via-indigo-400 hover:to-emerald-500 hover:shadow-emerald-500/30 transform hover:scale-[1.01] active:scale-[0.99]"
             >
-              Configure Workspace
+              Register
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/login")}
+              className="mt-3 w-full rounded-lg border border-slate-700/60 py-2 text-sm font-semibold text-slate-300 transition-all duration-300 hover:border-slate-400 hover:text-white"
+            >
+              Back
             </button>
           </form>
         </div>
