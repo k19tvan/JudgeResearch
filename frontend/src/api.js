@@ -1,6 +1,7 @@
 const AUTH_API_URL = "http://localhost:21081/api/auth";
 const PROBLEM_API_URL = "http://localhost:21081/api/problems";
 const ROADMAP_API_URL = "http://localhost:21081/api/roadmaps";
+const ROADMAP_STEP_API_URL = "http://localhost:21081/api/roadmap-steps"; // Thêm base URL cho roadmap-steps
 const USER_API_URL = "http://localhost:21081/api/users";
 
 export const registerUser = async (userData) => {
@@ -31,11 +32,11 @@ export const loginUser = async (credentials) => {
   return response.json(); 
 };
 
-export const createManualProblem = async (problemData) => {
+export const createManualProblem = async (formData) => {
+  // Không đặt Header 'Content-Type' vì trình duyệt sẽ tự động thiết lập ranh giới (boundary) cho FormData
   const response = await fetch(`${PROBLEM_API_URL}/create/manual`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(problemData),
+    body: formData, 
   });
 
   if (!response.ok) {
@@ -47,9 +48,6 @@ export const createManualProblem = async (problemData) => {
 };
 
 export const fetchProblems = async (userId = null) => {
-  // Fetch problems: public problems + user's own private problems
-  // If userId provided, fetch all problems user can access (public + own private)
-  // Otherwise, fetch only public problems
   if (userId) {
     return filterProblems("all", userId);
   }
@@ -158,8 +156,9 @@ export const fetchRoadmaps = async (userId) => {
   return response.json();
 };
 
-export const createProblemDetailedly = async (problemId) => {
-  const response = await fetch(`${PROBLEM_API_URL}/${problemId}/create_detailedly`, {
+// Đã cập nhật khớp hoàn toàn với endpoint roadmap-step mới của backend
+export const createProblemDetailedly = async (stepId) => {
+  const response = await fetch(`${ROADMAP_STEP_API_URL}/${stepId}/create_detailedly`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
@@ -169,6 +168,60 @@ export const createProblemDetailedly = async (problemId) => {
     throw new Error(errorData.detail || "Create problem materials failed");
   }
 
+  return response.json();
+};
+
+// Đã cập nhật khớp hoàn toàn với endpoint lưu chính thức mới của backend
+export const saveStepToProblem = async (stepId) => {
+  const response = await fetch(`${ROADMAP_STEP_API_URL}/${stepId}/save_to_problem`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Save step to problem failed");
+  }
+
+  return response.json();
+};
+
+export const runProblem = async (problemId, submitted_code) => {
+  const response = await fetch(`${PROBLEM_API_URL}/${problemId}/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ submitted_code }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Run failed");
+  }
+
+  return response.json();
+};
+
+export const submitProblem = async (problemId, user_id, submitted_code) => {
+  const response = await fetch(`${PROBLEM_API_URL}/${problemId}/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id, submitted_code }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Submit failed");
+  }
+
+  return response.json();
+};
+
+export const fetchProblemSubmissions = async (problemId, userId) => {
+  const response = await fetch(`${PROBLEM_API_URL}/${problemId}/submissions?user_id=${userId}`);
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Failed to fetch submissions");
+  }
   return response.json();
 };
 
@@ -203,7 +256,7 @@ export const updateUserProfile = async (userId, profileData) => {
 // ================ SUBMISSIONS / LIVE CODING ENDPOINTS ================
 
 export const createSubmission = async (submissionData) => {
-  const response = await fetch(`http://localhost:51083/api/submissions`, {
+  const response = await fetch(`http://localhost:21081/api/submissions`, {
     method: "POST",
     headers: { 
       "Content-Type": "application/json",
@@ -220,7 +273,7 @@ export const createSubmission = async (submissionData) => {
 };
 
 export const fetchSubmission = async (submissionId) => {
-  const response = await fetch(`http://localhost:51083/api/submissions/${submissionId}`);
+  const response = await fetch(`http://localhost:21081/api/submissions/${submissionId}`);
 
   if (!response.ok) {
     const errorData = await response.json();

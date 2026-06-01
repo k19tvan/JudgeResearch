@@ -14,12 +14,15 @@ export default function ResearchTab({ isLight = false }) {
   const [roadmaps, setRoadmaps] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState("");
+  
+  // 1. Khởi tạo formData có thêm num_test_cases
   const [formData, setFormData] = useState({
     roadmap_name: "",
     repository_url: "",
     level: "Intermediate",
     user_note: "",
     framework: "PyTorch",
+    num_test_cases: 3, // Đồng bộ với mặc định của Backend
     user_id: localStorage.getItem("user_id") || DEFAULT_USER_ID,
   });
 
@@ -37,6 +40,9 @@ export default function ResearchTab({ isLight = false }) {
   const userId = Number(formData.user_id || DEFAULT_USER_ID);
 
   const refreshRoadmaps = async () => {
+    // Chỉ fetch khi userId hợp lệ để tránh gửi request rác khi đang gõ
+    if (!userId || userId <= 0) return;
+    
     try {
       const [draftResult, roadmapResult] = await Promise.all([
         fetchDraftSessions(userId),
@@ -49,13 +55,21 @@ export default function ResearchTab({ isLight = false }) {
     }
   };
 
+  // 2. Đồng bộ userId với localStorage và fetch lại data
   useEffect(() => {
-    refreshRoadmaps();
+    if (userId > 0) {
+      localStorage.setItem("user_id", String(userId));
+      refreshRoadmaps();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   const handleChange = (e) => {
-    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value, type } = e.target;
+    setFormData((prev) => ({ 
+      ...prev, 
+      [name]: type === "number" ? Number(value) : value 
+    }));
   };
 
   const handleCreateRoadmap = async (e) => {
@@ -66,6 +80,7 @@ export default function ResearchTab({ isLight = false }) {
       const result = await createProblemsFromRepo({
         ...formData,
         user_id: Number(formData.user_id),
+        num_test_cases: Number(formData.num_test_cases) // Truyền tham số này về backend
       });
       const sessionId = result?.data?.session_id;
       await refreshRoadmaps();
@@ -147,17 +162,32 @@ export default function ResearchTab({ isLight = false }) {
               </label>
             </div>
 
-            <label className={`block text-xs font-semibold uppercase ${tone.muted}`}>
-              User ID
-              <input
-                name="user_id"
-                type="number"
-                min="1"
-                value={formData.user_id}
-                onChange={handleChange}
-                className={`mt-1.5 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-emerald-500 ${tone.input}`}
-              />
-            </label>
+            {/* Khối giao diện mới: Chọn số lượng Test Cases & User ID */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className={`block text-xs font-semibold uppercase ${tone.muted}`}>
+                Test Cases
+                <input
+                  name="num_test_cases"
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={formData.num_test_cases}
+                  onChange={handleChange}
+                  className={`mt-1.5 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-emerald-500 ${tone.input}`}
+                />
+              </label>
+              <label className={`block text-xs font-semibold uppercase ${tone.muted}`}>
+                User ID
+                <input
+                  name="user_id"
+                  type="number"
+                  min="1"
+                  value={formData.user_id}
+                  onChange={handleChange}
+                  className={`mt-1.5 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-emerald-500 ${tone.input}`}
+                />
+              </label>
+            </div>
 
             <label className={`block text-xs font-semibold uppercase ${tone.muted}`}>
               Additional note

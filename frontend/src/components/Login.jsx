@@ -13,20 +13,24 @@ export default function Login() {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError("");
-    try {
-      const data = await loginUser(formData);
-      
-      localStorage.setItem("access_token", data.access_token);
-      localStorage.setItem("refresh_token", data.refresh_token);
-      localStorage.setItem("username", formData.username);
+      e.preventDefault();
+      setError("");
+      try {
+        const data = await loginUser(formData);
+        
+        localStorage.setItem("access_token", data.access_token);
+        localStorage.setItem("refresh_token", data.refresh_token);
+        localStorage.setItem("username", formData.username);
+        
+        // BỔ SUNG: Lưu user_id vào localStorage để các component khác sử dụng
+        localStorage.setItem("user_id", data.user_id); 
+        localStorage.setItem("user_role", data.user_role);
 
-      navigate("/");
-    } catch (err) {
-      setError(err.message);
-    }
-  };
+        navigate("/");
+      } catch (err) {
+        setError(err.message);
+      }
+    };
 
   return (
     <div className="flex min-h-screen w-screen bg-[#030014] text-slate-100 overflow-hidden">

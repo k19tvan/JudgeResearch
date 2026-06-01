@@ -47,9 +47,10 @@ npm install
 cd deepwiki-open
 python -m venv .venv
 .venv/Scripts/Activate.ps1
-python -m pip install poetry==2.0.1 && poetry install -C api
+python -m pip install poetry==2.0.1
+poetry install -C api
 pip install dotenv grpcio faiss-cpu
-cp ../.env_example ./env 
+cp ../.env_example ./.env 
 ```
 
 ## Running the Application
@@ -85,4 +86,8 @@ cd frontend
 npm run dev -- --port 21080 --host 0.0.0.0
 ```
 
-The frontend will be available at: `http://localhost:21080` (or as shown in console)
+The frontend will be available at: `http://localhost:21080` 
+
+
+# Add admin role 
+UPDATE users SET role = 'admin' WHERE id = <user_id>;

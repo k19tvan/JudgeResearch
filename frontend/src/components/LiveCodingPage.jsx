@@ -1,4 +1,3 @@
-// src/components/LiveCodingPage.jsx
 import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
@@ -6,12 +5,13 @@ import Editor from "@monaco-editor/react";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { fetchProblemContent } from "../api";
+import { fetchProblemContent, runProblem, submitProblem, fetchProblemSubmissions } from "../api";
 
 const CONTENT_TABS = [
   { key: "statement", label: "Description" },
   { key: "theory", label: "Theory" },
   { key: "tutorial", label: "Editorial" },
+  { key: "submissions", label: "Submissions" },
 ];
 
 function normalizeEditorCode(raw) {
@@ -32,14 +32,31 @@ export default function LiveCodingPage() {
 
   const [activeContentTab, setActiveContentTab] = useState("statement");
   const [problem, setProblem] = useState(baseProblem || null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // Đặt mặc định ban đầu là loading
   const [error, setError] = useState("");
-  const [code, setCode] = useState(normalizeEditorCode(baseProblem?.coding_markdown || ""));
   
-  // Trạng thái Console giống LeetCode
+  // Khởi tạo code từ bản nháp trong localStorage nếu có bản nháp hợp lệ, nếu không dùng baseProblem
+  const [code, setCode] = useState(() => {
+    const savedDraft = localStorage.getItem(`draft_code_${problemId}`);
+    if (savedDraft && savedDraft.trim() !== "" && savedDraft !== "undefined" && savedDraft !== "null") {
+      return savedDraft;
+    }
+    return normalizeEditorCode(baseProblem?.coding_markdown || "");
+  });
+  
+  // Trạng thái Console
   const [consoleOutput, setConsoleOutput] = useState("Run your code to see results here...");
   const [isConsoleRunning, setIsConsoleRunning] = useState(false);
 
+  // Trạng thái lưu lịch sử submissions
+  const [submissions, setSubmissions] = useState([]);
+  const [isSubmissionsLoading, setIsSubmissionsLoading] = useState(false);
+  const [expandedSubId, setExpandedSubId] = useState(null);
+
+  // Lấy ID người dùng hiện tại
+  const currentUserId = Number(localStorage.getItem("user_id") || "1");
+
+  // 1. Tải nội dung bài tập từ backend và kiểm tra bản nháp lưu trữ
   useEffect(() => {
     const loadProblemContent = async () => {
       setIsLoading(true);
@@ -52,7 +69,14 @@ export default function LiveCodingPage() {
             ...(prev || {}),
             ...contentProblem,
           }));
-          setCode(normalizeEditorCode(contentProblem.coding_markdown || ""));
+          
+          const savedDraft = localStorage.getItem(`draft_code_${problemId}`);
+          // Lọc bản nháp an toàn trước khi nạp vào Editor để tránh nạp chuỗi rỗng/lỗi
+          if (savedDraft && savedDraft.trim() !== "" && savedDraft !== "undefined" && savedDraft !== "null") {
+            setCode(savedDraft);
+          } else {
+            setCode(normalizeEditorCode(contentProblem.coding_markdown || ""));
+          }
         }
       } catch (err) {
         setError(err.message || "Failed to load problem content");
@@ -64,26 +88,117 @@ export default function LiveCodingPage() {
     loadProblemContent();
   }, [problemId]);
 
+  // 2. Tải danh sách submissions khi người dùng chuyển sang Tab Submissions
+  const loadSubmissionsList = async () => {
+    setIsSubmissionsLoading(true);
+    try {
+      const resp = await fetchProblemSubmissions(problemId, currentUserId);
+      setSubmissions(resp?.data || []);
+    } catch (err) {
+      console.error("Failed to load submissions:", err);
+    } finally {
+      setIsSubmissionsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeContentTab === "submissions") {
+      loadSubmissionsList();
+    }
+  }, [activeContentTab, problemId]);
+
+  // 3. Tự động lưu bản nháp vào localStorage (Chỉ thực hiện khi đã load thành công dữ liệu từ backend)
+  useEffect(() => {
+    // CHẶN GHI ĐÈ LỖI: Không tự động lưu bản nháp trống nếu dữ liệu bài tập chưa được load hoàn tất
+    if (!problemId || !problem || isLoading) return;
+
+    const delayDebounceFn = setTimeout(() => {
+      localStorage.setItem(`draft_code_${problemId}`, code);
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [code, problemId, problem, isLoading]);
+
+  // Khôi phục lại code mẫu ban đầu
+  const handleResetCode = () => {
+    const confirmReset = window.confirm("Are you sure you want to reset your code to the default template?");
+    if (confirmReset && problem) {
+      const defaultCode = normalizeEditorCode(problem.coding_markdown || "");
+      setCode(defaultCode);
+      localStorage.setItem(`draft_code_${problemId}`, defaultCode);
+    }
+  };
+
   const handleRunCode = () => {
-    setIsConsoleRunning(true);
-    setConsoleOutput("Initializing Docker Sandbox...\nCompiling code...\nExecuting test cases...");
-    setTimeout(() => {
-      setConsoleOutput(
-        "Status: SUCCESS\n---\nRunning test cases:\nTest Case 1: Passed\nTest Case 2: Passed\nAll checks completed successfully."
-      );
-      setIsConsoleRunning(false);
-    }, 1500);
+    (async () => {
+      setIsConsoleRunning(true);
+      setConsoleOutput("Running first test case...\n");
+      try {
+        const resp = await runProblem(problemId, code);
+        const parts = [];
+        parts.push(`Status: ${resp.status}`);
+        if (resp.message) parts.push(`Message: ${resp.message}`);
+        parts.push(`Output: ${JSON.stringify(resp.output)}`);
+        parts.push(`Expected: ${JSON.stringify(resp.expected)}`);
+        if (resp.elapsed_ms) parts.push(`Time: ${resp.elapsed_ms} ms`);
+        setConsoleOutput(parts.join('\n'));
+      } catch (err) {
+        setConsoleOutput(`Error: ${err.message}`);
+      } finally {
+        setIsConsoleRunning(false);
+      }
+    })();
   };
 
   const handleSubmitCode = () => {
-    setIsConsoleRunning(true);
-    setConsoleOutput("Submitting code to ML Online Judge...\nEvaluating on hidden dataset...");
-    setTimeout(() => {
-      setConsoleOutput(
-        "Submission Result: ACCEPTED\nTime: 124ms\nMemory: 24.5 MB\nScore: 100/100"
-      );
-      setIsConsoleRunning(false);
-    }, 2000);
+    (async () => {
+      setIsConsoleRunning(true);
+      setConsoleOutput("Submitting... Evaluating on hidden dataset...\n");
+      try {
+        const resp = await submitProblem(problemId, currentUserId, code);
+        const parts = [];
+        parts.push(`Final status: ${resp.status}`);
+        parts.push(`Score: ${resp.score}`);
+        parts.push(`Submission ID: ${resp.submission_id}`);
+        parts.push('Test results:');
+        resp.results.forEach((r) => {
+          parts.push(`  TC ${r.testcase}: ${r.status} (${JSON.stringify(r.user_output)})`);
+        });
+        setConsoleOutput(parts.join('\n'));
+
+        // Nếu đang ở tab submissions, tự động tải lại danh sách sau khi nộp thành công
+        if (activeContentTab === "submissions") {
+          loadSubmissionsList();
+        }
+      } catch (err) {
+        setConsoleOutput(`Error: ${err.message}`);
+      } finally {
+        setIsConsoleRunning(false);
+      }
+    })();
+  };
+
+  // Khôi phục code cũ từ một submission lịch sử vào trình soạn thảo chính
+  const handleLoadSubmittedCode = (submittedCode) => {
+    const confirmLoad = window.confirm("Do you want to load this submitted code into your codespace? This will overwrite your current workspace.");
+    if (confirmLoad) {
+      setCode(submittedCode);
+      localStorage.setItem(`draft_code_${problemId}`, submittedCode);
+    }
+  };
+
+  const toggleExpandSubmission = (id) => {
+    setExpandedSubId(expandedSubId === id ? null : id);
+  };
+
+  // Ánh xạ màu sắc hiển thị cho trạng thái nộp bài
+  const getStatusBadgeClass = (status) => {
+    const lowerStatus = status.toLowerCase();
+    if (lowerStatus === "accepted") return "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+    if (lowerStatus === "wrong_answer" || lowerStatus === "wrong answer") return "text-red-400 bg-red-500/10 border-red-500/20";
+    if (lowerStatus === "runtime_error" || lowerStatus === "runtime error") return "text-amber-400 bg-amber-500/10 border-amber-500/20";
+    if (lowerStatus === "time_limit_exceeded" || lowerStatus === "time limit exceeded") return "text-cyan-400 bg-cyan-500/10 border-cyan-500/20";
+    return "text-slate-400 bg-slate-500/10 border-slate-500/20";
   };
 
   const contentMap = {
@@ -170,7 +285,7 @@ export default function LiveCodingPage() {
         }
       `}</style>
 
-      {/* HEADER BAR (LeetCode Slim Nav Style) */}
+      {/* HEADER BAR */}
       <header className="flex h-12 w-full items-center justify-between border-b border-white/5 bg-[#0f0f1b] px-5">
         <div className="flex items-center gap-3">
           <span className="text-xl">🤖</span>
@@ -191,12 +306,11 @@ export default function LiveCodingPage() {
         </button>
       </header>
 
-      {/* WORKSPACE AREA (Grid 50/50, No Scroll on Main Body) */}
+      {/* WORKSPACE AREA */}
       <main className="flex flex-1 w-full overflow-hidden p-2 gap-2 bg-[#080711]">
         
-        {/* LEFT COLUMN: Problem Info Panel (Description, Theory, Editorial) */}
+        {/* LEFT COLUMN: Problem Info Panel & Submissions List */}
         <section className="flex w-1/2 flex-col h-full rounded-xl border border-white/5 bg-slate-950/20 backdrop-blur-xl overflow-hidden">
-          {/* Flat Tabs bar */}
           <nav className="flex border-b border-white/5 bg-slate-950/40">
             {CONTENT_TABS.map((tab) => (
               <button
@@ -216,9 +330,79 @@ export default function LiveCodingPage() {
 
           {/* Internal Scrollable Content Box */}
           <div className="flex-1 overflow-y-auto p-5 bg-slate-950/10">
-            {isLoading ? (
-              <p className="text-xs text-slate-400 animate-pulse">Loading workspace content...</p>
+            {activeContentTab === "submissions" ? (
+              /* PANEL HIỂN THỊ DANH SÁCH SUBMISSIONS */
+              <div className="space-y-3">
+                <h3 className="text-sm font-bold text-slate-200 mb-3 uppercase tracking-wider">Submission History</h3>
+                
+                {isSubmissionsLoading ? (
+                  <p className="text-xs text-slate-400 animate-pulse">Loading submissions...</p>
+                ) : submissions.length === 0 ? (
+                  <p className="text-xs text-slate-400">You have no submissions for this problem yet.</p>
+                ) : (
+                  submissions.map((sub) => (
+                    <div 
+                      key={sub.id} 
+                      className="rounded-lg border border-white/5 bg-slate-950/50 overflow-hidden transition hover:border-white/10"
+                    >
+                      {/* Tiêu đề ngắn gọn của submission */}
+                      <div 
+                        onClick={() => toggleExpandSubmission(sub.id)}
+                        className="flex cursor-pointer items-center justify-between p-3 select-none"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className={`rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${getStatusBadgeClass(sub.status)}`}>
+                            {sub.status.replace("_", " ")}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-200">
+                            Score: <span className="text-cyan-400">{sub.score}</span>
+                          </span>
+                        </div>
+                        
+                        <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                          <span>{new Date(sub.created_at).toLocaleString()}</span>
+                          <span className="text-xs text-slate-300">{expandedSubId === sub.id ? "▲" : "▼"}</span>
+                        </div>
+                      </div>
+
+                      {/* Chi tiết khi nhấn mở rộng (Xem chi tiết từng testcase và khôi phục code) */}
+                      {expandedSubId === sub.id && (
+                        <div className="border-t border-white/5 bg-slate-950/80 p-3 space-y-3">
+                          {/* Nút khôi phục code */}
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] font-mono text-slate-400">Submission #{sub.id} Details</span>
+                            <button
+                              type="button"
+                              onClick={() => handleLoadSubmittedCode(sub.submitted_code)}
+                              className="rounded bg-cyan-600/20 hover:bg-cyan-600/40 border border-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-300 transition"
+                            >
+                              LOAD CODE TO EDITOR
+                            </button>
+                          </div>
+
+                          {/* Chi tiết các testcase */}
+                          {sub.test_results && sub.test_results.length > 0 ? (
+                            <div className="space-y-1.5 font-mono text-[11px] bg-black/30 p-2 rounded">
+                              {sub.test_results.map((tc, idx) => (
+                                <div key={idx} className="flex justify-between items-start py-0.5">
+                                  <span className="text-slate-400">{tc.testcase}:</span>
+                                  <span className={tc.status === "Accepted" ? "text-emerald-400" : "text-red-400"}>
+                                    {tc.status}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-slate-500">No test case details recorded.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             ) : (
+              /* PANEL HIỂN THỊ CÁC TAB KHÁC */
               <div className="markdown-preview text-sm text-slate-300">
                 <ReactMarkdown
                   remarkPlugins={[remarkMath]}
@@ -231,7 +415,7 @@ export default function LiveCodingPage() {
           </div>
         </section>
 
-        {/* RIGHT COLUMN: Code Editor (Top) & Output Console (Bottom) */}
+        {/* RIGHT COLUMN: Code Editor & Output Console */}
         <section className="flex w-1/2 flex-col h-full gap-2 overflow-hidden">
           
           {/* EDITOR PANEL */}
@@ -241,10 +425,17 @@ export default function LiveCodingPage() {
                 <span className="text-[11px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
                   Python 3
                 </span>
-                <span className="text-xs text-slate-400 font-mono">solution.py</span>
+                <span className="text-xs text-slate-400 font-mono">Codespace</span>
               </div>
               
               <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleResetCode}
+                  className="rounded bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-600 transition"
+                >
+                  RESET
+                </button>
                 <button
                   type="button"
                   onClick={handleRunCode}
@@ -288,7 +479,7 @@ export default function LiveCodingPage() {
             </div>
           </div>
 
-          {/* CONSOLE / TEST RESULTS PANEL (LeetCode Bottom Drawer) */}
+          {/* CONSOLE / TEST RESULTS PANEL */}
           <div className="h-48 flex flex-col rounded-xl border border-white/5 bg-slate-950/30 backdrop-blur-xl overflow-hidden">
             <div className="flex items-center border-b border-white/5 bg-slate-950/40 px-4 py-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">

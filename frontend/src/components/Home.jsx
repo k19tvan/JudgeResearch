@@ -6,6 +6,10 @@ import UsersTab from "./tabs/UsersTab";
 import ContestsTab from "./tabs/ContestsTab";
 import WikiTab from "./tabs/WikiTab";
 import ResearchTab from "./tabs/ResearchTab";
+import ProfileTab from "./tabs/ProfileTab";
+import MyRequestsTab from "./tabs/MyRequestsTab";
+import AdminQueueTab from "./tabs/AdminQueueTab";
+
 
 function IntroTab({ isLight }) {
   return (
@@ -67,6 +71,38 @@ const TABS = [
     component: SubmissionsTab,
   },
   {
+    key: "MY_REQUESTS",
+    label: "My Requests",
+    role: "user", // Phân quyền: chỉ tài khoản user thường mới có tab này
+    icon: (
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+      </svg>
+    ),
+    component: MyRequestsTab,
+  },
+  {
+    key: "ADMIN_QUEUE",
+    label: "Pending Queue",
+    role: "admin", // Phân quyền: chỉ tài khoản admin mới có tab này
+    icon: (
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+      </svg>
+    ),
+    component: AdminQueueTab,
+  },
+  {
+    key: "PROFILE",
+    label: "Profile",
+    icon: (
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+      </svg>
+    ),
+    component: ProfileTab,
+  },
+  {
     key: "USERS",
     label: "Users",
     icon: (
@@ -81,7 +117,7 @@ const TABS = [
     label: "Contests",
     icon: (
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138z"/>
       </svg>
     ),
     component: ContestsTab,
@@ -114,20 +150,32 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("HOME");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem("home_theme") || "dark");
+  
+  // Đọc vai trò người dùng (Mặc định là 'user' nếu chưa phân quyền)
+  const [userRole, setUserRole] = useState(() => localStorage.getItem("user_role") || "user");
+
   const isLight = theme === "light";
   const c = (darkColor, lightColor) => (isLight ? lightColor : darkColor);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
     const storedUsername = localStorage.getItem("username");
+    const storedRole = localStorage.getItem("user_role");
+    
     if (!token) { navigate("/login"); return; }
+    
     setUsername(storedUsername || "");
+    if (storedRole) {
+      setUserRole(storedRole);
+    }
   }, [navigate]);
 
   const handleLogout = () => {
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
     localStorage.removeItem("username");
+    localStorage.removeItem("user_role");
+    localStorage.removeItem("user_id");
     navigate("/login");
   };
 
@@ -138,6 +186,14 @@ export default function Home() {
       return next;
     });
   };
+
+  // LỌC DANH SÁCH TABS: Chỉ hiển thị các tab tương thích với quyền hiện tại
+  const filteredTabs = TABS.filter((tab) => {
+    if (tab.role) {
+      return tab.role === userRole;
+    }
+    return true;
+  });
 
   const ActiveTabComponent =
     TABS.find((tab) => tab.key === activeTab)?.component || ProblemsTab;
@@ -231,8 +287,9 @@ export default function Home() {
             )}
           </div>
 
-          <nav style={{ flex: 1, padding: "12px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
-            {TABS.map((tab) => {
+<nav style={{ flex: 1, padding: "12px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
+            {/* THAY TẠI ĐÂY: Sử dụng filteredTabs thay cho TABS */}
+            {filteredTabs.map((tab) => {
               const isActive = activeTab === tab.key;
               return (
                 <button

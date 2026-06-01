@@ -7,6 +7,7 @@ import {
   finalizeDraftSession,
   updateDraftSessionFeedback,
   createProblemDetailedly,
+  saveStepToProblem, // Thêm gọi API mới lưu chính thức
 } from "../api";
 
 export default function ResearchRoadmapPage({ mode }) {
@@ -21,7 +22,8 @@ export default function ResearchRoadmapPage({ mode }) {
   const [roadmapTitle, setRoadmapTitle] = useState("");
   const [loading, setLoading] = useState("");
   const [error, setError] = useState("");
-  const [creatingProblemId, setCreatingProblemId] = useState(null);
+  const [creatingStepId, setCreatingStepId] = useState(null);
+  const [savingStepId, setSavingStepId] = useState(null); // Quản lý trạng thái lưu chính thức
   const theme = localStorage.getItem("home_theme") || "dark";
   const isLight = theme === "light";
 
@@ -37,28 +39,29 @@ export default function ResearchRoadmapPage({ mode }) {
       : "border-slate-800 bg-slate-950/70 text-slate-100 placeholder-slate-600",
   }), [isLight]);
 
-  useEffect(() => {
-    const load = async () => {
-      setError("");
-      setLoading("load");
-      try {
-        if (mode === "draft") {
-          const result = await fetchDraftSessionDetail(sessionId);
-          const data = result?.data;
-          setDraft(data);
-          setProposedProblems(data?.proposed_problems || []);
-          setRoadmapTitle(data?.roadmap_name || "");
-        } else {
-          const result = await fetchRoadmap(roadmapId);
-          setRoadmap(result?.data || null);
-        }
-      } catch (err) {
-        setError(err.message || "Failed to load research roadmap");
-      } finally {
-        setLoading("");
+  const loadRoadmapData = async () => {
+    setError("");
+    setLoading("load");
+    try {
+      if (mode === "draft") {
+        const result = await fetchDraftSessionDetail(sessionId);
+        const data = result?.data;
+        setDraft(data);
+        setProposedProblems(data?.proposed_problems || []);
+        setRoadmapTitle(data?.roadmap_name || "");
+      } else {
+        const result = await fetchRoadmap(roadmapId);
+        setRoadmap(result?.data || null);
       }
-    };
-    load();
+    } catch (err) {
+      setError(err.message || "Failed to load research roadmap");
+    } finally {
+      setLoading("");
+    }
+  };
+
+  useEffect(() => {
+    loadRoadmapData();
   }, [mode, roadmapId, sessionId]);
 
   const handleFeedback = async () => {
@@ -99,20 +102,35 @@ export default function ResearchRoadmapPage({ mode }) {
     }
   };
 
-  const handleCreateDetailedly = async (problemId) => {
+  // 1. Tạo tài liệu nháp
+  const handleCreateDetailedly = async (stepId) => {
     setError("");
-    setCreatingProblemId(problemId);
+    setCreatingStepId(stepId);
     try {
-      const result = await createProblemDetailedly(problemId);
+      const result = await createProblemDetailedly(stepId);
       if (result?.status === "success") {
-        // Refresh roadmap data to update has_materials flag
-        const refreshedRoadmap = await fetchRoadmap(roadmapId);
-        setRoadmap(refreshedRoadmap?.data || null);
+        await loadRoadmapData(); // Reload lại dữ liệu mới từ backend
       }
     } catch (err) {
       setError(err.message || "Create problem materials failed");
     } finally {
-      setCreatingProblemId(null);
+      setCreatingStepId(null);
+    }
+  };
+
+  // 2. Chuyển đổi và lưu thành bài tập thực chính thức
+  const handleSaveToProblem = async (stepId) => {
+    setError("");
+    setSavingStepId(stepId);
+    try {
+      const result = await saveStepToProblem(stepId);
+      if (result?.status === "success") {
+        await loadRoadmapData(); // Reload để cập nhật nút "Go" và problem_id chính thức
+      }
+    } catch (err) {
+      setError(err.message || "Failed to save problem to system");
+    } finally {
+      setSavingStepId(null);
     }
   };
 
@@ -167,7 +185,7 @@ export default function ResearchRoadmapPage({ mode }) {
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-sm font-bold text-white">
                         {index + 1}
                       </div>
-                  <div className="min-w-0">
+                      <div className="min-w-0">
                         <h3 className={`font-semibold ${tone.title}`}>{problem.title}</h3>
                         <div className={`mt-2 text-sm leading-6 ${tone.body} prose prose-invert max-w-none`}>
                           <ReactMarkdown>{problem.description}</ReactMarkdown>
@@ -223,44 +241,86 @@ export default function ResearchRoadmapPage({ mode }) {
           <section className={`mt-5 rounded-lg border p-5 ${tone.panel}`}>
             <div className="flex items-center justify-between">
               <h2 className={`text-base font-semibold ${tone.title}`}>Roadmap timeline</h2>
-              <span className={`text-xs ${tone.muted}`}>{roadmap?.problems?.length || 0} problems</span>
+              <span className={`text-xs ${tone.muted}`}>{roadmap?.problems?.length || 0} steps</span>
             </div>
             <div className="mt-4 space-y-3">
-              {(roadmap?.problems || []).map((problem) => (
-                <div key={problem.problem_id} className={`rounded-lg border p-4 ${tone.card}`}>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className={`text-xs font-semibold ${tone.muted}`}>Step {problem.order_index}</p>
-                      <h3 className={`font-semibold ${tone.title}`}>{problem.name}</h3>
-                      <p className={`mt-1 text-xs ${tone.muted}`}>Problem #{problem.problem_id}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      {problem.has_materials ? (
-                        <button
-                          type="button"
-                          onClick={() => handleGoToCoding(problem.problem_id)}
-                          className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-500 transition-colors"
-                        >
-                          Go
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleCreateDetailedly(problem.problem_id)}
-                          disabled={creatingProblemId === problem.problem_id}
-                          className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold text-white transition-colors ${
-                            creatingProblemId === problem.problem_id
-                              ? "bg-emerald-400 cursor-wait"
-                              : "bg-emerald-600 hover:bg-emerald-500"
-                          }`}
-                        >
-                          {creatingProblemId === problem.problem_id ? "Creating..." : "Create Detailedly"}
-                        </button>
-                      )}
+              {(roadmap?.problems || []).map((problem) => {
+                const stepId = problem.step_id;
+                const stepStatus = problem.step_status; // 'pending', 'generated', 'saved'
+                
+                return (
+                  <div key={stepId} className={`rounded-lg border p-4 ${tone.card}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className={`text-xs font-semibold ${tone.muted}`}>Step {problem.order_index}</p>
+                        <h3 className={`font-semibold ${tone.title}`}>{problem.name}</h3>
+                        
+                        {stepStatus === 'saved' && (
+                          <p className={`mt-1 text-xs ${tone.muted}`}>Problem ID: #{problem.problem_id}</p>
+                        )}
+                        {stepStatus === 'generated' && (
+                          <span className="inline-block mt-1.5 rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-500">
+                            Draft Materials Generated
+                          </span>
+                        )}
+                        {stepStatus === 'pending' && (
+                          <span className="inline-block mt-1.5 rounded bg-slate-500/15 px-2 py-0.5 text-[10px] font-semibold text-slate-400">
+                            Pending AI Generation
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        {stepStatus === "saved" && (
+                          <button
+                            type="button"
+                            onClick={() => handleGoToCoding(problem.problem_id)}
+                            className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-500 transition-colors"
+                          >
+                            Go
+                          </button>
+                        )}
+                        
+                        {stepStatus === "pending" && (
+                          <button
+                            type="button"
+                            onClick={() => handleCreateDetailedly(stepId)}
+                            disabled={creatingStepId === stepId}
+                            className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold text-white transition-colors ${
+                              creatingStepId === stepId
+                                ? "bg-emerald-400 cursor-wait"
+                                : "bg-emerald-600 hover:bg-emerald-500"
+                            }`}
+                          >
+                            {creatingStepId === stepId ? "Generating..." : "Create Detailedly"}
+                          </button>
+                        )}
+                        
+                        {stepStatus === "generated" && (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleCreateDetailedly(stepId)}
+                              disabled={creatingStepId === stepId}
+                              className="shrink-0 rounded-lg bg-slate-700 hover:bg-slate-600 px-3 py-2 text-xs font-semibold text-slate-300 transition-colors"
+                            >
+                              {creatingStepId === stepId ? "Regenerating..." : "Regenerate"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveToProblem(stepId)}
+                              disabled={savingStepId === stepId}
+                              className="shrink-0 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition-colors"
+                            >
+                              {savingStepId === stepId ? "Saving..." : "Save to Problem"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         )}
