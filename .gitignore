@@ -147,3 +147,14 @@ coverage.xml
 # Python cache
 __pycache__/
 *.pyc
+*.pyo
+# AI-generated documentation
+docs/
+# Copilot workspace files
+.github/
+.github/copilot-workspace/
+.github/instructions/
+.github/ai-generated-docs/
+.github/prompts/
+# VSCode
+.vscode/

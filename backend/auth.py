@@ -1,10 +1,22 @@
 # auth.py
 import datetime
+import re
 import bcrypt
 import jwt
 
 SECRET_KEY = "your-very-secret-key"  # In production, load this from environment variables
 ALGORITHM = "HS256"
+PASSWORD_MIN_LENGTH = 8
+
+def validate_password(password: str):
+    errors = []
+    if len(password) < PASSWORD_MIN_LENGTH:
+        errors.append("Password must be at least 8 characters long.")
+    if not re.search(r"\d", password):
+        errors.append("Password must contain at least one digit (0-9).")
+    if re.search(r"\s", password):
+        errors.append("Password must not contain whitespace characters.")
+    return errors
 
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
