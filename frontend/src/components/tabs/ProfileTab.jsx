@@ -26,6 +26,7 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [secretKey, setSecretKey] = useState("");
+  const [contributorSecretKey, setContributorSecretKey] = useState(""); // Lưu khóa cộng tác viên
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
 
@@ -68,7 +69,6 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
       const result = await fetchUserProfile(userId);
       setProfile(result?.data);
       syncFormFromProfile(result?.data);
-      // <--- ADD THIS: Sync the layout on load
       if (onProfileUpdate) {
         onProfileUpdate(result?.data?.username, result?.data?.avatar_url);
       }
@@ -140,13 +140,21 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
     }
 
     if (formData.password) {
-      if (formData.password.length <= 8) {
+      if (formData.password.length < 8) {
         nextErrors.password = true;
-        messages.push("Password must be longer than 8 characters.");
+        messages.push("Password must be at least 8 characters long.");
+      }
+      if (!/[A-Z]/.test(formData.password)) {
+        nextErrors.password = true;
+        messages.push("Password must contain at least one uppercase letter (A-Z).");
       }
       if (!/\d/.test(formData.password)) {
         nextErrors.password = true;
         messages.push("Password must contain at least one digit (0-9).");
+      }
+      if (!/[!@#$%^&*(),.?":{}|<>]/.test(formData.password)) {
+        nextErrors.password = true;
+        messages.push("Password must contain at least one special character.");
       }
       if (/\s/.test(formData.password)) {
         nextErrors.password = true;
@@ -228,9 +236,7 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
 
     setIsSubmitting(true);
     try {
-      // Call the API and get the response
       const result = await updateUserProfile(userId, payload);
-      // Build the updated profile, merging any new avatar URL returned by the backend
       const updatedProfile = {
         ...profile,
         username: nextUsername,
@@ -240,7 +246,6 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
       };
       setProfile(updatedProfile);
       syncFormFromProfile(updatedProfile);
-      // Update stored username if it changed
       if (nextUsername !== profile.username) localStorage.setItem("username", nextUsername);
       setSuccess(result.message || "Update successful");
       setIsEditing(false);
@@ -254,6 +259,44 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
     }
   };
 
+  // Logic nâng cấp tài khoản lên Contributor
+  const handleBecomeContributor = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("http://localhost:21081/api/users/make-contributor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: Number(userId),
+          secret_key: contributorSecretKey,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || "Verification failed");
+      }
+
+      localStorage.setItem("user_role", "contributor");
+      setSuccess(result.message);
+      setContributorSecretKey("");
+
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err) {
+      setError(err.message || "Something went wrong");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Logic nâng cấp tài khoản lên Admin
   const handleBecomeAdmin = async (e) => {
     e.preventDefault();
     setError("");
@@ -388,10 +431,12 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
 
               <div className={`px-6 py-3 flex items-center justify-between border-t ${isLight ? "border-slate-100 bg-slate-50/50" : "border-white/5 bg-white/[0.02]"}`}>
                 <span className={`text-xs uppercase font-semibold ${tone.muted}`}>Account Role</span>
-                <span className={`text-xs font-bold uppercase px-3 py-1 rounded-full ${
+                <span className={`text-xs font-bold uppercase px-3 py-1 rounded-full border ${
                   profile.role === "admin"
-                    ? (isLight ? "text-rose-700 bg-rose-50 border border-rose-200" : "text-rose-400 bg-rose-500/10 border border-rose-500/20")
-                    : (isLight ? "text-cyan-700 bg-cyan-50 border border-cyan-200" : "text-cyan-400 bg-cyan-500/10 border border-cyan-500/20")
+                    ? "text-rose-400 bg-rose-500/10 border-rose-500/20"
+                    : profile.role === "contributor"
+                    ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
+                    : "text-cyan-400 bg-cyan-500/10 border-cyan-500/20"
                 }`}>
                   {profile.role}
                 </span>
@@ -502,18 +547,51 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
         </div>
       )}
 
+      {/* ELEVATE PRIVILEGES PANEL */}
       <div className={`rounded-lg border ${tone.panel}`}>
         <div className={`px-6 py-3 border-b text-xs font-semibold uppercase tracking-widest ${tone.muted} ${isLight ? "border-slate-100" : "border-white/5"}`}>
           Elevate Privileges
         </div>
 
-        <div className="px-6 py-5">
+        <div className="px-6 py-5 space-y-6">
+          {profile?.role === "user" && (
+            <div className="flex flex-col md:flex-row md:items-start gap-6 border-b border-white/5 pb-6">
+              <div className="md:w-1/2 space-y-1">
+                <p className={`text-sm font-semibold ${tone.body}`}>Become a Contributor</p>
+                <p className={`text-xs leading-relaxed ${tone.muted}`}>
+                  Enter a contributor invitation code to gain problem creation capabilities and research roadmaps access.
+                </p>
+              </div>
+
+              <form onSubmit={handleBecomeContributor} className="md:w-1/2 space-y-3">
+                <label className={`block text-xs font-semibold uppercase ${tone.muted}`}>
+                  Contributor Secret Key
+                  <input
+                    type="password"
+                    required
+                    value={contributorSecretKey}
+                    onChange={(e) => setContributorSecretKey(e.target.value)}
+                    placeholder="Enter contributor key..."
+                    className={`mt-1.5 w-full rounded-lg border px-3 py-2.5 text-sm outline-none font-mono ${tone.input}`}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full rounded-lg bg-amber-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-amber-500 disabled:opacity-60"
+                >
+                  {isSubmitting ? "VERIFYING..." : "ACTIVATE CONTRIBUTOR PRIVILEGES"}
+                </button>
+              </form>
+            </div>
+          )}
+
           {profile?.role !== "admin" ? (
             <div className="flex flex-col md:flex-row md:items-start gap-6">
               <div className="md:w-1/2 space-y-1">
                 <p className={`text-sm font-semibold ${tone.body}`}>Activate Admin Access</p>
                 <p className={`text-xs leading-relaxed ${tone.muted}`}>
-                  If you have an invitation key or system master token, enter it to gain rights to approve public requests and manage resources.
+                  If you have an invitation key or system master token, enter it to gain admin roles to approve requests.
                 </p>
               </div>
 
@@ -532,7 +610,7 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
                 >
                   {isSubmitting ? "VERIFYING..." : "ACTIVATE ADMIN PRIVILEGES"}
                 </button>
@@ -556,6 +634,7 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
         </div>
       </div>
 
+      {/* ACCOUNT DEACTIVATION PANEL */}
       <div className={`rounded-lg border ${isLight ? "border-red-200 bg-red-50/70" : "border-red-500/20 bg-red-500/5"}`}>
         <div className={`px-6 py-3 border-b text-xs font-semibold uppercase tracking-widest ${isLight ? "border-red-100 text-red-700" : "border-red-500/20 text-red-300"}`}>
           Account Deactivation

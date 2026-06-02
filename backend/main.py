@@ -2,7 +2,7 @@ import datetime
 import secrets
 import sqlite3
 import jwt
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Header
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Header, Response, Cookie
 from fastapi.staticfiles import StaticFiles
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
@@ -85,7 +85,7 @@ app.mount("/avatars", StaticFiles(directory="storage/avatars"), name="avatars")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*", "http://localhost:21080"],
+    allow_origins=["http://localhost:21080"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -225,6 +225,31 @@ class ProblemsFromRepoResponse(BaseModel):
     status: str
     message: str
     data: ProblemsFromRepoDataResponse
+
+class MakeContributorRequest(BaseModel):
+    user_id: int
+    secret_key: str
+
+class AdminUserUpdatePayload(BaseModel):
+    admin_id: int
+    role: Optional[str] = None      # 'user', 'contributor', 'admin'
+    status: Optional[str] = None    # 'active', 'disabled'
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+
+class ProblemUpdatePayload(BaseModel):
+    user_id: int
+    name: Optional[str] = None
+    source: Optional[str] = None
+    statement_markdown: Optional[str] = None
+    theory_markdown: Optional[str] = None
+    tutorial_markdown: Optional[str] = None
+    solution_markdown: Optional[str] = None
+    coding_markdown: Optional[str] = None
+    checker_markdown: Optional[str] = None
+
+class ProblemDeletePayload(BaseModel):
+    user_id: int
 
 def check_wiki_cache(owner: str, repo: str, repo_type: str = "github", language: str = "en"):  
     """Check if a repository is cached."""  
@@ -448,9 +473,8 @@ def register(user: UserRegister, db: sqlite3.Connection = Depends(get_db)):
     return {"message": "Registration successful"}
         
 @app.post("/api/auth/login")
-def login(credentials: UserLogin, db: sqlite3.Connection = Depends(get_db)):
+def login(credentials: UserLogin, response: Response, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
-    
     cursor.execute("SELECT * FROM users WHERE username = ?", (credentials.username,))
     user = cursor.fetchone()
     
@@ -458,7 +482,7 @@ def login(credentials: UserLogin, db: sqlite3.Connection = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid username or password")
     
     access_token = create_access_token(
-        data={"sub": user["username"], "role": user["role"], "user_id": user["id"]},
+        data={"sub": user["username"], "role": user["role"]},
         expires_delta=datetime.timedelta(minutes=30)
     )
     
@@ -471,43 +495,58 @@ def login(credentials: UserLogin, db: sqlite3.Connection = Depends(get_db)):
     )
     db.commit()
     
-    # CẬP NHẬT: Trả thêm "user_role" và "user_id" về cho Frontend
+    # Ghi nhận refresh_token vào HttpOnly Cookie bảo mật
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,                    # Chặn Javascript can thiệp (chống XSS)
+        max_age=7 * 24 * 3600,            # Sống trong 7 ngày
+        samesite="lax",                   # Bảo mật SameSite hỗ trợ localhost chéo port
+        secure=False                      # Đặt False khi test local HTTP không có SSL (HTTPS)
+    )
+    
     return {
         "access_token": access_token,
-        "refresh_token": refresh_token,
         "token_type": "bearer",
         "user_id": user["id"],
-        "user_role": user["role"]  # Thêm dòng này để truyền vai trò ('admin'/'user')
+        "user_role": user["role"]
     }
     
-    
 @app.post("/api/auth/refresh")
-def refresh(payload: LogoutRequest, db: sqlite3.Connection = Depends(get_db)):
+def refresh(response: Response, refresh_token: Optional[str] = Cookie(None), db: sqlite3.Connection = Depends(get_db)):
+    if not refresh_token:
+         raise HTTPException(status_code=401, detail="Session expired. Please re-login.")
+         
     cursor = db.cursor()
+    now_utc = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     
     cursor.execute(
-        "SELECT * FROM refresh_tokens WHERE token = ? AND expires_at > DATETIME('now')", 
-        (payload.refresh_token,)
+        "SELECT * FROM refresh_tokens WHERE token = ? AND expires_at > ? AND is_revoked = 0", 
+        (refresh_token, now_utc)
     )
     token_record = cursor.fetchone()
     if not token_record:
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
     
-    cursor.execute("SELECT id, username, role FROM users WHERE id = ?", (token_record["user_id"],))
+    cursor.execute("SELECT username, role FROM users WHERE id = ?", (token_record["user_id"],))
     user = cursor.fetchone()
     
     new_access_token = create_access_token(
-        data={"sub": user["username"], "role": user["role"], "user_id": user["id"]},
+        data={"sub": user["username"], "role": user["role"]},
         expires_delta=datetime.timedelta(minutes=30)
     )
     
     return {"access_token": new_access_token, "token_type": "bearer"}
 
 @app.post("/api/auth/logout")
-def logout(payload: LogoutRequest, db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    cursor.execute("DELETE FROM refresh_tokens WHERE token = ?", (payload.refresh_token,))
-    db.commit()
+def logout(response: Response, refresh_token: Optional[str] = Cookie(None), db: sqlite3.Connection = Depends(get_db)):
+    if refresh_token:
+        cursor = db.cursor()
+        cursor.execute("DELETE FROM refresh_tokens WHERE token = ?", (refresh_token,))
+        db.commit()
+        
+    # Xóa Cookie 'refresh_token' khỏi trình duyệt
+    response.delete_cookie("refresh_token")
     return {"message": "Logged out successfully"}
 
 def normalize_problem_name(name: str) -> str:
@@ -539,6 +578,13 @@ async def create_problem_manual(
         raise HTTPException(status_code=400, detail="Problem statement cannot be empty")
 
     cursor = db.cursor()
+    
+    # [PHÂN QUYỀN]: Kiểm tra vai trò của người tạo bài tập
+    cursor.execute("SELECT role FROM users WHERE id = ?", (author_id,))
+    user_row = cursor.fetchone()
+    if not user_row or user_row["role"] not in ("admin", "contributor"):
+        raise HTTPException(status_code=403, detail="Unauthorized. Only admins or contributors can create problems.")
+
     try:
         name_slug = normalize_problem_name(name)
         cursor.execute("SELECT id FROM problems WHERE name = ?", (name_slug,))
@@ -580,7 +626,6 @@ async def create_problem_manual(
         input_folder_path = None
         output_folder_path = None
         
-        # Sử dụng đúng tên biến tệp tin nhận từ tham số hàm
         if input_zip:
             input_folder_path = save_and_unzip_file(problem_folder, input_zip, "inputs")
             if not validate_folder_structure(input_folder_path):
@@ -591,7 +636,6 @@ async def create_problem_manual(
             if not validate_folder_structure(output_folder_path):
                 raise HTTPException(status_code=400, detail="Invalid output folder structure or missing .txt files")
 
-        # Thêm checker_path vào câu lệnh INSERT để lưu vào cơ sở dữ liệu
         cursor.execute("""
             INSERT INTO problems (
                 name, source, statement_path, theory_path, tutorial_path, 
@@ -712,7 +756,7 @@ def filter_problems(user_id: int = None, filter_mode: str = "public", db: sqlite
 
 # Usecase: Get problem content to display in livecoding page
 @app.get("/api/problems/{problem_id}/content")
-def get_problem_content(problem_id: int, db: sqlite3.Connection = Depends(get_db)):
+def get_problem_content(problem_id: int, user_id: Optional[int] = None, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
     try:
         cursor.execute("""
@@ -724,35 +768,58 @@ def get_problem_content(problem_id: int, db: sqlite3.Connection = Depends(get_db
         if not row:
             raise HTTPException(status_code=404, detail="Problem not found")
 
+        # Xác định vai trò của người dùng yêu cầu
+        role = "user"
+        if user_id:
+            cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
+            user = cursor.fetchone()
+            if user:
+                role = user["role"]
+
         def read_file(path_value: Optional[str]) -> str:
-            if not path_value:
-                return ""
-            if not os.path.exists(path_value):
+            if not path_value or not os.path.exists(path_value):
                 return ""
             with open(path_value, "r", encoding="utf-8") as f:
                 return f.read()
 
         data = dict(row)
-        
-        form = {
+        statement_markdown = read_file(data["statement_path"])
+        theory_markdown = read_file(data["theory_path"])
+        tutorial_markdown = read_file(data["tutorial_path"])
+        solution_markdown = read_file(data["solution_path"])
+        coding_markdown = read_file(data["coding_path"])
+
+        # [KIỂM TRA PHÂN QUYỀN XEM LỜI GIẢI]
+        if role not in ("admin", "contributor"):
+            has_solved = False
+            if user_id:
+                # Kiểm tra xem user này đã giải đúng (đạt 100 điểm hoặc Accepted) hay chưa
+                cursor.execute("""
+                    SELECT 1 FROM submissions 
+                    WHERE problem_id = ? AND user_id = ? AND (score = 100 OR status = 'accepted') 
+                    LIMIT 1
+                """, (problem_id, user_id))
+                if cursor.fetchone():
+                    has_solved = True
+            
+            if not has_solved:
+                # Nếu chưa giải đúng, làm rỗng nội dung lời giải mẫu và hiển thị thông báo yêu cầu
+                solution_markdown = "## Restricted Access\nYou must solve this problem with an Accepted status (100 pts) to view the sample solution."
+
+        return {
             "status": "success",
             "data": {
                 "id": data["id"],
                 "name": data["name"],
-                "statement_markdown": read_file(data["statement_path"]),
-                "theory_markdown": read_file(data["theory_path"]),
-                "tutorial_markdown": read_file(data["tutorial_path"]),
-                "solution_markdown": read_file(data["solution_path"]),
-                "coding_markdown": read_file(data["coding_path"]),
+                "statement_markdown": statement_markdown,
+                "theory_markdown": theory_markdown,
+                "tutorial_markdown": tutorial_markdown,
+                "solution_markdown": solution_markdown,
+                "coding_markdown": coding_markdown,
             }
         }
-
-        return form
     except sqlite3.Error as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Database query error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
 # Usecase: Run code on the first test case (for quick feedback in livecoding)
 @app.post("/api/problems/{problem_id}/run")
@@ -1421,6 +1488,24 @@ def deactivate_user_account(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database execution error: {str(e)}")
 
+@app.post("/api/users/make-contributor")
+def make_user_contributor(payload: MakeContributorRequest, db: sqlite3.Connection = Depends(get_db)):
+    contributor_secret = os.getenv("CONTRIBUTOR_SECRET_KEY", "SUPER_SECRET_CONTRIBUTOR_2026")
+    if payload.secret_key != contributor_secret:
+        raise HTTPException(status_code=400, detail="Invalid contributor secret key. Access denied.")
+        
+    cursor = db.cursor()
+    try:
+        cursor.execute("UPDATE users SET role = 'contributor' WHERE id = ?", (payload.user_id,))
+        db.commit()
+        return {
+            "status": "success",
+            "message": "Congratulations! You have successfully upgraded to Contributor. Please re-login to apply changes."
+        }
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database execution error: {str(e)}")
+    
 # Usecase : Add admin role to a user (for admin management)
 @app.post("/api/users/make-admin")
 def make_user_admin(payload: MakeAdminRequest, db: sqlite3.Connection = Depends(get_db)):
@@ -2187,3 +2272,201 @@ def get_draft_session_detail(session_id: int, db: sqlite3.Connection = Depends(g
         }
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
+
+# Usecase : Sửa bài tập cho contribution và admin
+
+@app.put("/api/problems/{problem_id}")
+def update_problem(problem_id: int, payload: ProblemUpdatePayload, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
+    user = cursor.fetchone()
+    if not user or user["role"] not in ("admin", "contributor"):
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    cursor.execute("SELECT author_id, request_status, statement_path, theory_path, tutorial_path, solution_path, coding_path, checker_path FROM problems WHERE id = ?", (problem_id,))
+    prob = cursor.fetchone()
+    if not prob:
+        raise HTTPException(status_code=404, detail="Problem not found")
+    
+    # Ràng buộc Contributor: chỉ được sửa bài của mình khi chưa được duyệt công khai
+    if user["role"] == "contributor":
+        if prob["author_id"] != payload.user_id:
+            raise HTTPException(status_code=403, detail="You can only edit your own problems")
+        if prob["request_status"] == "APPROVED":
+            raise HTTPException(status_code=403, detail="Cannot edit approved/public problems")
+    
+    update_fields = []
+    params = []
+    
+    if payload.name:
+        update_fields.append("name = ?")
+        params.append(payload.name)
+    if payload.source is not None:
+        update_fields.append("source = ?")
+        params.append(payload.source)
+        
+    # Cập nhật nội dung tệp tin lưu trữ
+    if payload.statement_markdown is not None and prob["statement_path"]:
+        with open(prob["statement_path"], "w", encoding="utf-8") as f:
+            f.write(payload.statement_markdown)
+    if payload.theory_markdown is not None and prob["theory_path"]:
+        with open(prob["theory_path"], "w", encoding="utf-8") as f:
+            f.write(payload.theory_markdown)
+    if payload.tutorial_markdown is not None and prob["tutorial_path"]:
+        with open(prob["tutorial_path"], "w", encoding="utf-8") as f:
+            f.write(payload.tutorial_markdown)
+    if payload.solution_markdown is not None and prob["solution_path"]:
+        with open(prob["solution_path"], "w", encoding="utf-8") as f:
+            f.write(payload.solution_markdown)
+    if payload.coding_markdown is not None and prob["coding_path"]:
+        with open(prob["coding_path"], "w", encoding="utf-8") as f:
+            f.write(payload.coding_markdown)
+    if payload.checker_markdown is not None and prob["checker_path"]:
+        with open(prob["checker_path"], "w", encoding="utf-8") as f:
+            f.write(payload.checker_markdown)
+            
+    if update_fields:
+        update_fields.append("updated_at = CURRENT_TIMESTAMP")
+        cursor.execute(f"UPDATE problems SET {', '.join(update_fields)} WHERE id = ?", params + [problem_id])
+        db.commit()
+        
+    return {"status": "success", "message": "Problem updated successfully"}
+
+
+# Usecase : Xóa bài tập cho contribution và admin
+ 
+@app.delete("/api/problems/{problem_id}")
+def delete_problem(problem_id: int, payload: ProblemDeletePayload, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
+    user = cursor.fetchone()
+    if not user or user["role"] not in ("admin", "contributor"):
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    cursor.execute("SELECT author_id, request_status, statement_path, theory_path, tutorial_path, solution_path, coding_path, checker_path FROM problems WHERE id = ?", (problem_id,))
+    prob = cursor.fetchone()
+    if not prob:
+        raise HTTPException(status_code=404, detail="Problem not found")
+    
+    # Ràng buộc Contributor: chỉ được xóa bài của mình khi chưa được duyệt công khai
+    if user["role"] == "contributor":
+        if prob["author_id"] != payload.user_id:
+            raise HTTPException(status_code=403, detail="You can only delete your own problems")
+        if prob["request_status"] == "APPROVED":
+            raise HTTPException(status_code=403, detail="Cannot delete approved/public problems")
+            
+    # Xóa tệp tin vật lý trên đĩa
+    for key in ["statement_path", "theory_path", "tutorial_path", "solution_path", "coding_path", "checker_path"]:
+        p = prob[key]
+        if p and os.path.exists(p):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+                
+    cursor.execute("DELETE FROM problems WHERE id = ?", (problem_id,))
+    db.commit()
+    return {"status": "success", "message": "Problem deleted successfully"}
+
+# Usecase : Admin xem danh sách người dùng và bài tập của họ để quản lý
+@app.get("/api/admin/users")
+@app.get("/api/admin/users")
+def admin_list_users(admin_id: int, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT role FROM users WHERE id = ?", (admin_id,))
+    user = cursor.fetchone()
+    if not user or user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    
+    cursor.execute("SELECT id, username, display_name, email, role, status, created_at FROM users")
+    return {"status": "success", "data": [dict(row) for row in cursor.fetchall()]}
+
+@app.put("/api/admin/users/{user_id}")
+def admin_update_user(user_id: int, payload: AdminUserUpdatePayload, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT role FROM users WHERE id = ?", (payload.admin_id,))
+    admin = cursor.fetchone()
+    if not admin or admin["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    
+    update_fields = []
+    params = []
+    
+    if payload.role is not None:
+        if payload.role not in ("user", "contributor", "admin"):
+            raise HTTPException(status_code=400, detail="Invalid role")
+        update_fields.append("role = ?")
+        params.append(payload.role)
+        
+    if payload.status is not None:
+        if payload.status not in ("active", "disabled"):
+            raise HTTPException(status_code=400, detail="Invalid status")
+        update_fields.append("status = ?")
+        params.append(payload.status)
+        
+    if payload.display_name is not None:
+        update_fields.append("display_name = ?")
+        params.append(payload.display_name)
+        
+    if payload.email is not None:
+        update_fields.append("email = ?")
+        params.append(payload.email)
+        
+    if update_fields:
+        update_fields.append("updated_at = CURRENT_TIMESTAMP")
+        cursor.execute(f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?", params + [user_id])
+        db.commit()
+        
+    return {"status": "success", "message": "User updated successfully"}
+
+
+@app.post("/api/problems/problems_from_repo")
+def get_problems_from_repo(payload: ProblemsFromRepo, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    # [PHÂN QUYỀN]: Kiểm tra vai trò người tạo Roadmap
+    cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
+    user_row = cursor.fetchone()
+    if not user_row or user_row["role"] not in ("admin", "contributor"):
+        raise HTTPException(status_code=403, detail="Unauthorized. Access denied to non-creators.")
+    
+    try:
+        owner, repo = get_repo_owner_and_name(payload.repository_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    cache_data = check_wiki_cache(owner, repo)  
+    if not cache_data: 
+        print(f"[Warning] Repo {owner}/{repo} wasn't cached.")
+
+    try:
+        question_prompt = get_problems_from_repo_prompt.format(
+            repository_url=payload.repository_url,
+            level=payload.level,
+            framework=payload.framework or 'Auto-detect',
+            user_note=payload.user_note or 'None'
+        )
+
+        ai_raw_response = ask_question(payload.repository_url, question_prompt)
+        json_string = clean_json_response(ai_raw_response)
+        parsed_problems = [ProposedProblem(**item) for item in json.loads(json_string)]
+
+        cursor.execute("""
+            INSERT INTO draft_problem_sessions (roadmap_name, repository_url, user_id, problems_json, num_test_cases, status)
+            VALUES (?, ?, ?, ?, ?, 'draft')
+        """, (payload.roadmap_name, payload.repository_url, payload.user_id, json_string, payload.num_test_cases))
+        
+        db.commit()
+        session_id = cursor.lastrowid
+        
+        return ProblemsFromRepoResponse(
+            status="success",
+            message="Generated proposed problem list successfully.",
+            data=ProblemsFromRepoDataResponse(
+                session_id=session_id,
+                repository_url=payload.repository_url,
+                roadmap_name=payload.roadmap_name,
+                proposed_problems=parsed_problems
+            )
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

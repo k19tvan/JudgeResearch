@@ -4,6 +4,54 @@ const ROADMAP_API_URL = "http://localhost:21081/api/roadmaps";
 const ROADMAP_STEP_API_URL = "http://localhost:21081/api/roadmap-steps"; // Thêm base URL cho roadmap-steps
 const USER_API_URL = "http://localhost:21081/api/users";
 
+async function customFetch(url, options = {}) {
+  let accessToken = localStorage.getItem("access_token");
+
+  // Bắt buộc phải có để truyền nhận HttpOnly Cookie chéo cổng localhost
+  options.credentials = "include"; 
+
+  options.headers = {
+    ...options.headers,
+    ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {}),
+  };
+
+  let response = await fetch(url, options);
+
+  // Tự động xử lý âm thầm khi Access Token hết hạn (401)
+  if (response.status === 401) {
+    try {
+      // Gọi API refresh (Không cần truyền body vì cookie tự động được đính kèm)
+      const refreshResponse = await fetch("http://localhost:21081/api/auth/refresh", {
+        method: "POST",
+        credentials: "include",
+      });
+
+      if (refreshResponse.ok) {
+        const refreshData = await refreshResponse.json();
+        localStorage.setItem("access_token", refreshData.access_token);
+        
+        // Gắn access_token mới vào cấu hình và thực thi lại yêu cầu cũ
+        options.headers["Authorization"] = `Bearer ${refreshData.access_token}`;
+        response = await fetch(url, options);
+      } else {
+        handleSessionExpired();
+      }
+    } catch (err) {
+      handleSessionExpired();
+    }
+  }
+
+  return response;
+}
+
+function handleSessionExpired() {
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("username");
+  localStorage.removeItem("user_id");
+  localStorage.removeItem("user_role");
+  window.location.href = "/login";
+}
+
 const getAuthHeaders = () => {
   const token = localStorage.getItem("access_token");
   return {
@@ -81,16 +129,11 @@ export const fetchProblems = async (userId = null) => {
   return filterProblems("public");
 };
 
-export const fetchProblemContent = async (problemId) => {
-  const response = await fetch(`${PROBLEM_API_URL}/${problemId}/content`, {
-    method: "GET",
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.detail || "Fetch problem content failed");
-  }
-
+export const fetchProblemContent = async (problemId, userId) => {
+  const url = userId 
+    ? `http://localhost:21081/api/problems/${problemId}/content?user_id=${userId}`
+    : `http://localhost:21081/api/problems/${problemId}/content`;
+  const response = await fetch(url);
   return response.json();
 };
 
