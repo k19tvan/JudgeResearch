@@ -8,7 +8,7 @@ JudgeResearch integrates automated judging, AI-assisted problem generation, code
 
 <br>
 
-<img src="images/example.png" alt="JudgeResearch Platform" width="1000"/>
+<img src="images/HomePage.png" alt="JudgeResearch Platform" width="1000"/>
 
 <br>
 
