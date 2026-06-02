@@ -1,34 +1,53 @@
+<div align="center">
+
 # JudgeResearch Platform
 
-JudgeResearch is an educational problem management and research platform that combines AI-powered code analysis, automated evaluation, and interactive problem creation. The platform enables instructors and learners to create, manage, analyze, and evaluate programming problems through an integrated web interface.
+AI-powered educational platform for programming problem creation, evaluation, and research.
 
-## Architecture
+JudgeResearch integrates automated judging, AI-assisted problem generation, code analysis, and research workflows into a unified web-based environment for instructors and learners.
 
-The project consists of three main services:
+<br>
 
-| Service     | Description                                                             | Port    |
-| ----------- | ----------------------------------------------------------------------- | ------- |
-| Frontend    | User interface built with modern web technologies                       | `21080` |
-| Backend API | Core application logic, authentication, evaluation, and database access | `21081` |
-| DeepWiki    | AI-powered research and documentation service                           | `21082` |
+<img src="images/example.png" alt="JudgeResearch Platform" width="1000"/>
+
+<br>
+
+![Python](https://img.shields.io/badge/Python-3.11+-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688)
+![React](https://img.shields.io/badge/React-Frontend-61DAFB)
+![SQLite](https://img.shields.io/badge/Database-SQLite-green)
+
+</div>
 
 ---
 
-## Prerequisites
+## 🏗 System Architecture
 
-Before starting, ensure the following tools are installed:
+JudgeResearch consists of three primary services:
+
+| Service     | Purpose                                                                | Default Port |
+| ----------- | ---------------------------------------------------------------------- | ------------ |
+| Frontend    | User-facing web application                                            | `21080`      |
+| Backend API | Authentication, evaluation engine, database access, and business logic | `21081`      |
+| DeepWiki    | AI-powered research and documentation assistant                        | `21082`      |
+
+---
+
+## 📋 Prerequisites
+
+Ensure the following software is installed before setup:
 
 * Python 3.11+
 * Node.js 18+
 * npm
 * Git
-* Conda (optional but recommended)
+* Conda (optional)
 
 ---
 
-# Installation
+# 🚀 Installation
 
-## 1. Clone Repository
+## 1. Clone the Repository
 
 ```bash
 git clone https://github.com/k19tvan/JudgeResearch.git
@@ -62,8 +81,6 @@ This command creates the SQLite database and initializes all required tables.
 
 ## 3. Frontend Setup
 
-Install frontend dependencies:
-
 ```bash
 cd frontend
 
@@ -87,17 +104,21 @@ poetry install -C api
 pip install dotenv grpcio faiss-cpu
 ```
 
-Create environment file:
+Create an environment file:
 
 ```bash
 cp env_example .env
 ```
 
-Then add your Gemini API key inside `.env`.
+Then configure your Gemini API key:
+
+```env
+GEMINI_API_KEY=your-api-key
+```
 
 ---
 
-# Configuration
+# ⚙ Configuration
 
 ## Backend Environment
 
@@ -107,7 +128,7 @@ Create a backend environment file:
 cp .env.example .env
 ```
 
-Update important values:
+Update required values:
 
 ```env
 ADMIN_SECRET_KEY=your-secret-key
@@ -115,22 +136,18 @@ ADMIN_SECRET_KEY=your-secret-key
 
 ---
 
-# Running the Application
+# ▶ Running the Platform
 
-## 1. Start Backend API
+## Start Backend API
 
 ```bash
-cd JudgeResearch
-
-conda activate env
-
 python -m uvicorn backend.main:app \
     --host 0.0.0.0 \
     --port 21081 \
     --reload
 ```
 
-Backend API:
+Backend endpoint:
 
 ```text
 http://localhost:21081
@@ -138,7 +155,7 @@ http://localhost:21081
 
 ---
 
-## 2. Start DeepWiki Service
+## Start DeepWiki Service
 
 Open a new terminal:
 
@@ -148,7 +165,7 @@ cd deepwiki-open
 python -m api.main
 ```
 
-DeepWiki service:
+DeepWiki endpoint:
 
 ```text
 http://localhost:21082
@@ -156,7 +173,7 @@ http://localhost:21082
 
 ---
 
-## 3. Start Frontend
+## Start Frontend
 
 Open another terminal:
 
@@ -172,3 +189,34 @@ Frontend application:
 http://localhost:21080
 ```
 
+---
+
+# 📂 Project Structure
+
+```text
+JudgeResearch/
+├── backend/          # FastAPI backend
+├── frontend/         # React frontend
+├── deepwiki-open/    # AI research service
+├── database/         # Database initialization and schema
+├── images/           # Documentation assets
+└── README.md
+```
+
+---
+
+# ✨ Core Features
+
+* AI-assisted programming problem generation
+* Automated submission evaluation
+* Test case generation and management
+* Research-assisted problem authoring
+* Draft session workflow
+* User authentication and role management
+* Interactive web-based dashboard
+
+---
+
+# 📄 License
+
+This project is intended for educational and research purposes.
