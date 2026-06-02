@@ -480,13 +480,14 @@ def login(credentials: UserLogin, db: sqlite3.Connection = Depends(get_db)):
     )
     db.commit()
     
-    # CẬP NHẬT: Trả thêm "user_role" và "user_id" về cho Frontend
+    # CẬP NHẬT: Trả thêm thông tin phiên cần thiết về cho Frontend
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
         "user_id": user["id"],
-        "user_role": user["role"]  # Thêm dòng này để truyền vai trò ('admin'/'user')
+        "user_role": user["role"],
+        "avatar_url": user["avatar_url"],
     }
     
     

@@ -304,6 +304,7 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
       localStorage.removeItem("username");
       localStorage.removeItem("user_role");
       localStorage.removeItem("user_id");
+      localStorage.removeItem("avatar_url");
       navigate("/login", { replace: true });
     } catch (err) {
       setError(err.message || "Account deactivation failed");
