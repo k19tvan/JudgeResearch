@@ -1,5 +1,7 @@
+// Thay đổi và bổ sung trong Paste June 03, 2026 - 12:28AM
+
 import React, { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom"; // Gộp chung các import từ react-router-dom
+import { useNavigate, useLocation } from "react-router-dom";
 import ProblemsTab from "./tabs/ProblemsTab";
 import SubmissionsTab from "./tabs/SubmissionsTab";
 import UsersTab from "./tabs/UsersTab";
@@ -10,32 +12,12 @@ import ProfileTab from "./tabs/ProfileTab";
 import MyRequestsTab from "./tabs/MyRequestsTab";
 import AdminQueueTab from "./tabs/AdminQueueTab";
 
+// IMPORT CÁC TAB MỚI CỦA PHẦN QUẢN LÝ CỘNG ĐỒNG
+import BlogsTab from "./tabs/BlogsTab";
+import TicketsTab from "./tabs/TicketsTab";
+
 function IntroTab({ isLight }) {
-  return (
-    <section className={`space-y-4 ${isLight ? "text-slate-700" : "text-slate-200"}`}>
-      <h2 className={`text-3xl font-bold tracking-wide ${isLight ? "text-slate-900" : "text-white"}`}>
-        Welcome to Judge Research
-      </h2>
-      <p className={`text-base leading-7 ${isLight ? "text-slate-700" : "text-slate-300"}`}>
-        This platform helps you practice machine learning problems, read theory/tutorial materials,
-        and solve tasks directly in a live coding workspace.
-      </p>
-      <div className="grid gap-3 md:grid-cols-3">
-        <article className={`rounded-lg border p-4 ${isLight ? "border-slate-300 bg-white/90" : "border-white/10 bg-slate-900/40"}`}>
-          <h3 className={`text-sm font-semibold ${isLight ? "text-emerald-700" : "text-cyan-300"}`}>Problems</h3>
-          <p className={`mt-2 text-sm ${isLight ? "text-slate-700" : "text-slate-300"}`}>Create and manage problem statements and resources.</p>
-        </article>
-        <article className={`rounded-lg border p-4 ${isLight ? "border-slate-300 bg-white/90" : "border-white/10 bg-slate-900/40"}`}>
-          <h3 className={`text-sm font-semibold ${isLight ? "text-emerald-700" : "text-cyan-300"}`}>Live Coding</h3>
-          <p className={`mt-2 text-sm ${isLight ? "text-slate-700" : "text-slate-300"}`}>Open a coding workspace and test solutions quickly.</p>
-        </article>
-        <article className={`rounded-lg border p-4 ${isLight ? "border-slate-300 bg-white/90" : "border-white/10 bg-slate-900/40"}`}>
-          <h3 className={`text-sm font-semibold ${isLight ? "text-emerald-700" : "text-cyan-300"}`}>Research Flow</h3>
-          <p className={`mt-2 text-sm ${isLight ? "text-slate-700" : "text-slate-300"}`}>Track submissions, users, and contest activities in one place.</p>
-        </article>
-      </div>
-    </section>
-  );
+  // Giữ nguyên...
 }
 
 const TABS = [
@@ -70,9 +52,29 @@ const TABS = [
     component: SubmissionsTab,
   },
   {
+    key: "BLOGS",
+    label: "Blogs",
+    icon: (
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 4a2 2 0 012 2v5a2 2 0 01-2 2z" />
+      </svg>
+    ),
+    component: BlogsTab,
+  },
+  {
+    key: "TICKETS",
+    label: "Support Tickets",
+    icon: (
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
+      </svg>
+    ),
+    component: TicketsTab,
+  },
+  {
     key: "MY_REQUESTS",
     label: "My Requests",
-    allowedRoles: ["user", "contributor"], // Học viên và Cộng tác viên
+    allowedRoles: ["user", "contributor"],
     icon: (
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -83,7 +85,7 @@ const TABS = [
   {
     key: "ADMIN_QUEUE",
     label: "Pending Queue",
-    allowedRoles: ["admin"], // Chỉ Admin
+    allowedRoles: ["admin"],
     icon: (
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
@@ -104,7 +106,7 @@ const TABS = [
   {
     key: "USERS",
     label: "Users",
-    allowedRoles: ["admin"], // Chỉ Admin
+    allowedRoles: ["admin"],
     icon: (
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
@@ -135,7 +137,7 @@ const TABS = [
   {
     key: "RESEARCH",
     label: "Research",
-    allowedRoles: ["admin", "contributor"], // Chỉ Admin và Contributor
+    allowedRoles: ["admin", "contributor"],
     icon: (
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>

@@ -198,6 +198,88 @@ class ProblemUpdatePayload(BaseModel):
 class ProblemDeletePayload(BaseModel):
     user_id: int
 
+class BlogCreate(BaseModel):
+    title: str
+    content: str
+    author_id: int
+
+class CommentCreate(BaseModel):
+    content: str
+    user_id: int
+    problem_id: Optional[int] = None
+    blog_id: Optional[int] = None
+    parent_id: Optional[int] = None
+
+class CommentUpdate(BaseModel):
+    content: str
+    user_id: int
+
+class CommentDeletePayload(BaseModel):
+    user_id: int
+
+class VoteRequest(BaseModel):
+    user_id: int
+    blog_id: Optional[int] = None
+    comment_id: Optional[int] = None
+    vote_type: int # 1: Upvote, -1: Downvote
+
+class TicketCreate(BaseModel):
+    user_id: int
+    title: str
+    description: str
+
+class TicketReplyCreate(BaseModel):
+    user_id: int
+    message: str
+
+class TicketStatusUpdate(BaseModel):
+    user_id: int
+    status: str # 'open' or 'resolved'
+
+class AdminUserUpdatePayload(BaseModel):
+    admin_id: Optional[int] = None
+    username: Optional[str] = None
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    status: Optional[str] = None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def check_wiki_cache(owner: str, repo: str, repo_type: str = "github", language: str = "en"):  
     params = {  
         "owner": owner,  
@@ -288,6 +370,51 @@ def validate_email_format(email: str) -> Optional[str]:
     if not EMAIL_FORMAT_PATTERN.match(email):
         return "Email must be a valid format."
     return None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # ================= API ENDPOINTS =================
 
@@ -454,9 +581,12 @@ async def create_problem_manual(
 
     try:
         name_slug = normalize_problem_name(name)
+
         cursor.execute("SELECT id FROM problems WHERE name = ?", (name_slug,))
+
         if cursor.fetchone():
             raise HTTPException(status_code=400, detail="The problem name already exists.")
+        print("cc")
 
         problem_folder = initialize_problem_storage(storage_path, name_slug)
         statement_path = os.path.join(problem_folder, "statement.md")
@@ -498,10 +628,22 @@ async def create_problem_manual(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'NONE', ?, ?)
         """, (name, source, statement_path, theory_path, tutorial_path, solution_path, coding_path, checker_path, author_id, input_folder_path, output_folder_path))
 
+        problem_id = cursor.lastrowid
         db.commit()
-        return {"status": "success", "message": "Create problem manually successfully"}
+        return {
+            "status": "success",
+            "success": True,
+            "message": "Create problem manually successfully",
+            "data": {
+                "id": problem_id,
+                "problem_id": problem_id
+            },
+            "id": problem_id,
+            "problem_id": problem_id
+        }
     except Exception as e:
         db.rollback()
+        print(e)
         raise HTTPException(status_code=500, detail=str(e))
 
 # Usecase: Fetch and filter problems
@@ -1453,7 +1595,6 @@ def list_managed_users(
     cursor = db.cursor()
     try:
         is_authenticated = False
-
         if authorization:
             try:
                 require_admin_user(cursor, authorization)
@@ -2080,3 +2221,443 @@ def get_problems_from_repo_post(payload: ProblemsFromRepo, db: sqlite3.Connectio
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blogs")
+def get_blogs(user_id: Optional[int] = None, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    try:
+        cursor.execute("""
+            SELECT b.id, b.title, b.content, b.author_id, b.created_at, b.updated_at,
+                   u.display_name AS author_name, u.avatar_url AS author_avatar,
+                   COALESCE((SELECT SUM(vote_type) FROM votes WHERE blog_id = b.id), 0) AS score,
+                   COALESCE((SELECT vote_type FROM votes WHERE blog_id = b.id AND user_id = ?), 0) AS user_vote
+            FROM blogs b
+            JOIN users u ON b.author_id = u.id
+            ORDER BY b.created_at DESC
+        """, (user_id,))
+        return {"status": "success", "data": [dict(row) for row in cursor.fetchall()]}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/blogs/{blog_id}")
+def get_blog_detail(blog_id: int, user_id: Optional[int] = None, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    try:
+        cursor.execute("""
+            SELECT b.id, b.title, b.content, b.author_id, b.created_at, b.updated_at,
+                   u.display_name AS author_name, u.avatar_url AS author_avatar,
+                   COALESCE((SELECT SUM(vote_type) FROM votes WHERE blog_id = b.id), 0) AS score,
+                   COALESCE((SELECT vote_type FROM votes WHERE blog_id = b.id AND user_id = ?), 0) AS user_vote
+            FROM blogs b
+            JOIN users u ON b.author_id = u.id
+            WHERE b.id = ?
+        """, (user_id, blog_id))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Blog post not found")
+        return {"status": "success", "data": dict(row)}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blogs")
+def create_blog(payload: BlogCreate, db: sqlite3.Connection = Depends(get_db)):
+    if not payload.title.strip() or not payload.content.strip():
+        raise HTTPException(status_code=400, detail="Title and content cannot be empty")
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO blogs (title, content, author_id) VALUES (?, ?, ?)",
+            (payload.title.strip(), payload.content.strip(), payload.author_id)
+        )
+        db.commit()
+        return {"status": "success", "message": "Blog created successfully", "id": cursor.lastrowid}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# 5.1 & 5.2 & 5.3: Quản lý Thảo luận / Bình luận (Comments)
+@app.get("/api/comments")
+def get_comments(
+    problem_id: Optional[int] = None,
+    blog_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    if not problem_id and not blog_id:
+        raise HTTPException(status_code=400, detail="Either problem_id or blog_id must be provided")
+    cursor = db.cursor()
+    try:
+        if problem_id:
+            cursor.execute("""
+                SELECT c.id, c.content, c.user_id, c.problem_id, c.blog_id, c.parent_id, c.created_at, c.updated_at,
+                       u.display_name AS user_name, u.role AS user_role, u.avatar_url AS user_avatar,
+                       COALESCE((SELECT SUM(vote_type) FROM votes WHERE comment_id = c.id), 0) AS score,
+                       COALESCE((SELECT vote_type FROM votes WHERE comment_id = c.id AND user_id = ?), 0) AS user_vote
+                FROM comments c
+                JOIN users u ON c.user_id = u.id
+                WHERE c.problem_id = ?
+                ORDER BY c.created_at ASC
+            """, (user_id, problem_id))
+        else:
+            cursor.execute("""
+                SELECT c.id, c.content, c.user_id, c.problem_id, c.blog_id, c.parent_id, c.created_at, c.updated_at,
+                       u.display_name AS user_name, u.role AS user_role, u.avatar_url AS user_avatar,
+                       COALESCE((SELECT SUM(vote_type) FROM votes WHERE comment_id = c.id), 0) AS score,
+                       COALESCE((SELECT vote_type FROM votes WHERE comment_id = c.id AND user_id = ?), 0) AS user_vote
+                FROM comments c
+                JOIN users u ON c.user_id = u.id
+                WHERE c.blog_id = ?
+                ORDER BY c.created_at ASC
+            """, (user_id, blog_id))
+        return {"status": "success", "data": [dict(row) for row in cursor.fetchall()]}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/comments")
+def create_comment(payload: CommentCreate, db: sqlite3.Connection = Depends(get_db)):
+    if not payload.content or not payload.content.strip():
+        raise HTTPException(status_code=400, detail="Bình luận không được phép bỏ trống.")
+    
+    cursor = db.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO comments (content, user_id, problem_id, blog_id, parent_id)
+            VALUES (?, ?, ?, ?, ?)
+        """, (payload.content.strip(), payload.user_id, payload.problem_id, payload.blog_id, payload.parent_id))
+        db.commit()
+        return {"status": "success", "message": "Bình luận thành công", "id": cursor.lastrowid}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/comments/{comment_id}")
+def update_comment(comment_id: int, payload: CommentUpdate, db: sqlite3.Connection = Depends(get_db)):
+    if not payload.content or not payload.content.strip():
+        raise HTTPException(status_code=400, detail="Bình luận không được phép bỏ trống.")
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT user_id FROM comments WHERE id = ?", (comment_id,))
+        comment = cursor.fetchone()
+        if not comment:
+            raise HTTPException(status_code=404, detail="Bình luận không tồn tại")
+        
+        # Chỉ người viết mới được sửa bình luận của họ
+        if comment["user_id"] != payload.user_id:
+            raise HTTPException(status_code=403, detail="Bạn không thể sửa bình luận của người khác")
+            
+        cursor.execute("UPDATE comments SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (payload.content.strip(), comment_id))
+        db.commit()
+        return {"status": "success", "message": "Cập nhật bình luận thành công"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/comments/{comment_id}/delete")
+def delete_comment(comment_id: int, payload: CommentDeletePayload, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT user_id FROM comments WHERE id = ?", (comment_id,))
+        comment = cursor.fetchone()
+        if not comment:
+            raise HTTPException(status_code=404, detail="Bình luận không tồn tại")
+            
+        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
+            
+        is_owner = comment["user_id"] == payload.user_id
+        is_admin = user["role"] == "admin"
+        
+        if not is_owner and not is_admin:
+            raise HTTPException(status_code=403, detail="Bạn không có quyền xóa bình luận này")
+            
+        cursor.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
+        db.commit()
+        return {"status": "success", "message": "Xóa bình luận thành công"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# 5.4: Hệ thống Upvote / Downvote (Bình chọn)
+@app.post("/api/votes")
+def handle_vote(payload: VoteRequest, db: sqlite3.Connection = Depends(get_db)):
+    if not payload.blog_id and not payload.comment_id:
+        raise HTTPException(status_code=400, detail="Phải cung cấp blog_id hoặc comment_id")
+        
+    cursor = db.cursor()
+    try:
+        if payload.blog_id:
+            cursor.execute("SELECT vote_type FROM votes WHERE user_id = ? AND blog_id = ?", (payload.user_id, payload.blog_id))
+            row = cursor.fetchone()
+            if row:
+                if row["vote_type"] == payload.vote_type:
+                    # Bấm lại nút cũ -> Hủy đánh giá
+                    cursor.execute("DELETE FROM votes WHERE user_id = ? AND blog_id = ?", (payload.user_id, payload.blog_id))
+                else:
+                    # Bấm nút ngược lại -> Cập nhật trạng thái
+                    cursor.execute("UPDATE votes SET vote_type = ? WHERE user_id = ? AND blog_id = ?", (payload.vote_type, payload.user_id, payload.blog_id))
+            else:
+                # Tạo đánh giá mới
+                cursor.execute("INSERT INTO votes (user_id, blog_id, vote_type) VALUES (?, ?, ?)", (payload.user_id, payload.blog_id, payload.vote_type))
+        else:
+            cursor.execute("SELECT vote_type FROM votes WHERE user_id = ? AND comment_id = ?", (payload.user_id, payload.comment_id))
+            row = cursor.fetchone()
+            if row:
+                if row["vote_type"] == payload.vote_type:
+                    # Bấm lại nút cũ -> Hủy đánh giá
+                    cursor.execute("DELETE FROM votes WHERE user_id = ? AND comment_id = ?", (payload.user_id, payload.comment_id))
+                else:
+                    # Bấm nút ngược lại -> Cập nhật
+                    cursor.execute("UPDATE votes SET vote_type = ? WHERE user_id = ? AND comment_id = ?", (payload.vote_type, payload.user_id, payload.comment_id))
+            else:
+                cursor.execute("INSERT INTO votes (user_id, comment_id, vote_type) VALUES (?, ?, ?)", (payload.user_id, payload.comment_id, payload.vote_type))
+                
+        db.commit()
+        return {"status": "success", "message": "Xử lý bình chọn thành công"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# 5.5: Hệ thống Quản lý Ticket Hỗ trợ
+@app.post("/api/tickets")
+def create_ticket(payload: TicketCreate, db: sqlite3.Connection = Depends(get_db)):
+    if not payload.title.strip() or not payload.description.strip():
+        raise HTTPException(status_code=400, detail="Vui lòng điền tiêu đề và mô tả sự cố")
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO tickets (user_id, title, description, status) VALUES (?, ?, ?, 'open')",
+            (payload.user_id, payload.title.strip(), payload.description.strip())
+        )
+        db.commit()
+        return {"status": "success", "message": "Tạo Ticket hỗ trợ thành công", "id": cursor.lastrowid}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/tickets")
+def list_tickets(user_id: int, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
+            
+        # Admin xem tất cả, User/Contributor xem ticket cá nhân
+        if user["role"] == "admin":
+            cursor.execute("""
+                SELECT t.id, t.user_id, t.title, t.description, t.status, t.created_at, t.updated_at,
+                       u.display_name AS creator_name
+                FROM tickets t
+                JOIN users u ON t.user_id = u.id
+                ORDER BY t.created_at DESC
+            """)
+        else:
+            cursor.execute("""
+                SELECT t.id, t.user_id, t.title, t.description, t.status, t.created_at, t.updated_at,
+                       u.display_name AS creator_name
+                FROM tickets t
+                JOIN users u ON t.user_id = u.id
+                WHERE t.user_id = ?
+                ORDER BY t.created_at DESC
+            """, (user_id,))
+        return {"status": "success", "data": [dict(row) for row in cursor.fetchall()]}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/tickets/{ticket_id}")
+def get_ticket_detail(ticket_id: int, user_id: int, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
+            
+        cursor.execute("""
+            SELECT t.id, t.user_id, t.title, t.description, t.status, t.created_at, t.updated_at,
+                   u.display_name AS creator_name
+            FROM tickets t
+            JOIN users u ON t.user_id = u.id
+            WHERE t.id = ?
+        """, (ticket_id,))
+        ticket = cursor.fetchone()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Không tìm thấy Ticket hỗ trợ")
+            
+        if user["role"] != "admin" and ticket["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="Bạn không có quyền xem Ticket này")
+            
+        cursor.execute("""
+            SELECT r.id, r.user_id, r.message, r.created_at,
+                   u.display_name AS replier_name, u.role AS replier_role, u.avatar_url AS replier_avatar
+            FROM ticket_replies r
+            JOIN users u ON r.user_id = u.id
+            WHERE r.ticket_id = ?
+            ORDER BY r.created_at ASC
+        """, (ticket_id,))
+        replies = [dict(row) for row in cursor.fetchall()]
+        
+        return {
+            "status": "success",
+            "data": {
+                **dict(ticket),
+                "replies": replies
+            }
+        }
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/tickets/{ticket_id}/replies")
+def create_ticket_reply(ticket_id: int, payload: TicketReplyCreate, db: sqlite3.Connection = Depends(get_db)):
+    if not payload.message.strip():
+        raise HTTPException(status_code=400, detail="Nội dung phản hồi không thể để trống")
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
+            
+        cursor.execute("SELECT user_id FROM tickets WHERE id = ?", (ticket_id,))
+        ticket = cursor.fetchone()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket không tồn tại")
+            
+        if user["role"] != "admin" and ticket["user_id"] != payload.user_id:
+            raise HTTPException(status_code=403, detail="Không có quyền phản hồi Ticket này")
+            
+        cursor.execute("""
+            INSERT INTO ticket_replies (ticket_id, user_id, message)
+            VALUES (?, ?, ?)
+        """, (ticket_id, payload.user_id, payload.message.strip()))
+        
+        cursor.execute("UPDATE tickets SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (ticket_id,))
+        db.commit()
+        return {"status": "success", "message": "Gửi phản hồi thành công"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/tickets/{ticket_id}/status")
+def update_ticket_status(ticket_id: int, payload: TicketStatusUpdate, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
+            
+        cursor.execute("SELECT user_id FROM tickets WHERE id = ?", (ticket_id,))
+        ticket = cursor.fetchone()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket không tồn tại")
+            
+        if user["role"] != "admin" and ticket["user_id"] != payload.user_id:
+            raise HTTPException(status_code=403, detail="Không có quyền cập nhật trạng thái")
+            
+        cursor.execute("UPDATE tickets SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (payload.status, ticket_id))
+        db.commit()
+        return {"status": "success", "message": f"Cập nhật trạng thái thành công"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+@app.put("/api/admin/users/{user_id}")
+def admin_update_user(
+    user_id: int,
+    payload: AdminUserUpdatePayload,
+    admin_id: Optional[int] = None,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    
+    # Xác định id của admin thực hiện yêu cầu
+    effective_admin_id = payload.admin_id or admin_id
+    
+    is_authenticated = False
+    if authorization:
+        try:
+            require_admin_user(cursor, authorization)
+            is_authenticated = True
+        except HTTPException:
+            pass
+
+    if not is_authenticated:
+        if effective_admin_id is not None:
+            cursor.execute("SELECT role, status FROM users WHERE id = ?", (effective_admin_id,))
+            user = cursor.fetchone()
+            if not user or user["role"] != "admin" or user["status"] != "active":
+                raise HTTPException(status_code=403, detail="Admin privileges required")
+        else:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Kiểm tra sự tồn tại của người dùng mục tiêu
+    cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+    target_user = cursor.fetchone()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Target user not found")
+
+    # Tiến hành cập nhật thông tin
+    update_fields = []
+    params = []
+
+    if payload.username is not None:
+        username = payload.username.strip()
+        if username:
+            cursor.execute("SELECT 1 FROM users WHERE id != ? AND LOWER(username) = LOWER(?)", (user_id, username))
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Username already exists")
+            update_fields.append("username = ?")
+            params.append(username)
+
+    if payload.display_name is not None:
+        display_name = payload.display_name.strip()
+        if display_name:
+            update_fields.append("display_name = ?")
+            params.append(display_name)
+
+    if payload.email is not None:
+        email = payload.email.strip()
+        if email:
+            email_error = validate_email_format(email)
+            if email_error:
+                raise HTTPException(status_code=400, detail=email_error)
+            cursor.execute("SELECT 1 FROM users WHERE id != ? AND LOWER(email) = LOWER(?)", (user_id, email))
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Email already exists")
+            update_fields.append("email = ?")
+            params.append(email)
+
+    if payload.role is not None:
+        role = payload.role.strip()
+        if role in ("admin", "contributor", "user"):
+            update_fields.append("role = ?")
+            params.append(role)
+
+    if payload.status is not None:
+        status = payload.status.strip()
+        if status in ("active", "disabled", "inactive"):
+            update_fields.append("status = ?")
+            params.append(status)
+
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="No fields provided for update")
+
+    update_fields.append("updated_at = CURRENT_TIMESTAMP")
+    
+    try:
+        cursor.execute(f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?", params + [user_id])
+        db.commit()
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    return {"status": "success", "message": "User updated successfully by admin"}

@@ -126,7 +126,7 @@ def init_db():
     );
     """)
 
-    # =============== 7. Bảng Roadmap Problems (Nâng cấp toàn bộ cột nháp) ===============
+    # =============== 7. Bảng Roadmap Problems ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS roadmap_problems (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,13 +161,110 @@ def init_db():
         FOREIGN KEY (problem_id) REFERENCES problems(id) ON DELETE CASCADE
     );
     """)
+
+    # =============== 9. Bảng Blogs (Bài viết chia sẻ) ===============
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS blogs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        author_id INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    """)
+
+    # =============== 10. Bảng Comments (Hỗ trợ phân nhánh) ===============
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        content TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        problem_id INTEGER,      -- Trống nếu là bình luận của Blog
+        blog_id INTEGER,         -- Trống nếu là thảo luận của Problem
+        parent_id INTEGER,       -- Trỏ tới bình luận gốc để phân nhánh
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (problem_id) REFERENCES problems(id) ON DELETE CASCADE,
+        FOREIGN KEY (blog_id) REFERENCES blogs(id) ON DELETE CASCADE,
+        FOREIGN KEY (parent_id) REFERENCES comments(id) ON DELETE CASCADE
+    );
+    """)
+
+    # =============== 11. Bảng Votes (Upvote/Downvote bài viết & bình luận) ===============
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS votes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        blog_id INTEGER,         -- Upvote/downvote cho Blog
+        comment_id INTEGER,      -- Upvote/downvote cho Comment
+        vote_type INTEGER NOT NULL, -- 1 (Upvote) hoặc -1 (Downvote)
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, blog_id),
+        UNIQUE(user_id, comment_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (blog_id) REFERENCES blogs(id) ON DELETE CASCADE,
+        FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE
+    );
+    """)
+
+    # =============== 12. Bảng Tickets (Yêu cầu hỗ trợ) ===============
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS tickets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open', -- 'open' hoặc 'resolved'
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    """)
+
+    # =============== 13. Bảng Ticket Replies ===============
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ticket_replies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        message TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    """)
     
     con.commit()
+
+    # Thêm dữ liệu mẫu hữu ích
+    cursor.execute("SELECT COUNT(*) FROM users")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("""
+            INSERT INTO users (username, password_hash, display_name, email, role, status)
+            VALUES 
+            ('admin', '$2b$12$4m2t/WfAptz.hFwZ6M7k3Oa.K41Dq1T3CqFOnT4K.t3H8Vb1v2x1a', 'System Admin', 'admin@judgeresearch.com', 'admin', 'active'),
+            ('contributor1', '$2b$12$4m2t/WfAptz.hFwZ6M7k3Oa.K41Dq1T3CqFOnT4K.t3H8Vb1v2x1a', 'Alex Nguyen', 'alex@judgeresearch.com', 'contributor', 'active')
+        """)
+        con.commit()
+
+        cursor.execute("SELECT id FROM users WHERE username='admin'")
+        adm_id = cursor.fetchone()[0]
+
+        cursor.execute("""
+            INSERT INTO blogs (title, content, author_id)
+            VALUES 
+            ('Optimizing PyTorch Models in Production Environment', 'Deploying models efficiently requires a good grasp of compiler optimizations. In PyTorch, using torch.compile() introduces graph-level optimizations that can speed up inference by up to 2x.', ?),
+            ('A Practical Guide to Learning Rate Scheduling', 'Learning rate decay schedules are highly important to ensure convergence without overfitting. Explore CosineAnnealingLR and ReduceLROnPlateau.', ?)
+        """, (adm_id, adm_id))
+        con.commit()
+
     con.close()
     print("Khởi tạo toàn bộ các bảng cơ sở dữ liệu thành công.")
 
 if __name__ == "__main__":
-    # Tiến hành xóa cơ sở dữ liệu cũ nếu tồn tại để tạo mới hoàn toàn sạch sẽ
     if os.path.exists(db_path):
         try:
             os.remove(db_path)
