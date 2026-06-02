@@ -25,6 +25,11 @@ export default function Login() {
         // BỔ SUNG: Lưu user_id vào localStorage để các component khác sử dụng
         localStorage.setItem("user_id", data.user_id); 
         localStorage.setItem("user_role", data.user_role);
+        if (data.avatar_url) {
+          localStorage.setItem("avatar_url", data.avatar_url);
+        } else {
+          localStorage.removeItem("avatar_url");
+        }
 
         navigate("/");
       } catch (err) {

@@ -31,6 +31,33 @@ const refreshAccessToken = async () => {
   return data.access_token || null;
 };
 
+const readResponseDetail = async (response) => {
+  try {
+    const data = await response.clone().json();
+    return data.detail || "";
+  } catch {
+    return "";
+  }
+};
+
+const shouldRefreshAndRetry = (response, detail) =>
+  response.status === 401 ||
+  (response.status === 403 && detail === "Cannot update another user's account");
+
+const sendWithAuthRetry = async (sendRequest) => {
+  let response = await sendRequest();
+  const detail = await readResponseDetail(response);
+
+  if (shouldRefreshAndRetry(response, detail)) {
+    const refreshedToken = await refreshAccessToken();
+    if (refreshedToken) {
+      response = await sendRequest();
+    }
+  }
+
+  return response;
+};
+
 export const registerUser = async (userData) => {
   const response = await fetch(`${AUTH_API_URL}/register`, {
     method: "POST",
@@ -259,17 +286,7 @@ export const fetchUserProfile = async (userId) => {
     headers: getAuthHeaders(),
   });
 
-  let response = await sendProfileRequest();
-
-  if (response.status === 403) {
-    const errorData = await response.clone().json();
-    if (errorData.detail === "Cannot update another user's account") {
-      const refreshedToken = await refreshAccessToken();
-      if (refreshedToken) {
-        response = await sendProfileRequest();
-      }
-    }
-  }
+  const response = await sendWithAuthRetry(sendProfileRequest);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -292,17 +309,7 @@ export const updateUserProfile = async (userId, profileData) => {
     });
   };
 
-  let response = await sendUpdateRequest();
-
-  if (response.status === 403) {
-    const errorData = await response.clone().json();
-    if (errorData.detail === "Cannot update another user's account") {
-      const refreshedToken = await refreshAccessToken();
-      if (refreshedToken) {
-        response = await sendUpdateRequest();
-      }
-    }
-  }
+  const response = await sendWithAuthRetry(sendUpdateRequest);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -323,21 +330,61 @@ export const deactivateUserAccount = async (userId) => {
     body: JSON.stringify({ confirm: true }),
   });
 
-  let response = await sendDeactivationRequest();
-
-  if (response.status === 403) {
-    const errorData = await response.clone().json();
-    if (errorData.detail === "Cannot update another user's account") {
-      const refreshedToken = await refreshAccessToken();
-      if (refreshedToken) {
-        response = await sendDeactivationRequest();
-      }
-    }
-  }
+  const response = await sendWithAuthRetry(sendDeactivationRequest);
 
   if (!response.ok) {
     const errorData = await response.json();
     throw new Error(errorData.detail || "Account deactivation failed");
+  }
+
+  return response.json();
+};
+
+// ================ ADMIN ACCOUNT MANAGEMENT ENDPOINTS ================
+
+export const fetchManagedUsers = async (search = "") => {
+  const query = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
+  const sendRequest = () => fetch(`${USER_API_URL.replace("/users", "/admin/users")}${query}`, {
+    headers: getAuthHeaders(),
+  });
+
+  const response = await sendWithAuthRetry(sendRequest);
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Fetch managed users failed");
+  }
+
+  return response.json();
+};
+
+export const fetchManagedUserDetails = async (userId) => {
+  const sendRequest = () => fetch(`${USER_API_URL.replace("/users", "/admin/users")}/${userId}`, {
+    headers: getAuthHeaders(),
+  });
+
+  const response = await sendWithAuthRetry(sendRequest);
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Fetch managed user failed");
+  }
+
+  return response.json();
+};
+
+export const updateManagedUser = async (userId, accountData) => {
+  const sendRequest = () => fetch(`${USER_API_URL.replace("/users", "/admin/users")}/${userId}`, {
+    method: "PUT",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(accountData),
+  });
+
+  const response = await sendWithAuthRetry(sendRequest);
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Update managed user failed");
   }
 
   return response.json();
