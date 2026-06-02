@@ -149,9 +149,8 @@ export default function Home() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Khai báo các State sạch sẽ (Không lặp lại)
   const [username, setUsername] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState(() => localStorage.getItem("avatar_url") || ""); // <--- ADD THIS
+  const [avatarUrl, setAvatarUrl] = useState(() => localStorage.getItem("avatar_url") || "");
   const [activeTab, setActiveTab] = useState("HOME");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [theme, setTheme] = useState(() => localStorage.getItem("home_theme") || "dark");
@@ -160,13 +159,11 @@ export default function Home() {
   const isLight = theme === "light";
   const c = (darkColor, lightColor) => (isLight ? lightColor : darkColor);
 
-
-// <--- ADD THIS HELPER FUNCTION --->
   const getAvatarUrl = (url) => {
     if (!url) return null;
     return url.startsWith("/") ? `http://localhost:21081${url}` : url;
   };
-  // <--- ADD THIS UPDATE HANDLER --->
+
   const handleProfileUpdate = (newUsername, newAvatarUrl) => {
     setUsername(newUsername);
     setAvatarUrl(newAvatarUrl);
@@ -177,7 +174,6 @@ export default function Home() {
       localStorage.removeItem("avatar_url");
     }
   };
-  // Phục hồi Tab hoạt động dựa vào điều hướng lịch sử ở trang khác
   
   useEffect(() => {
     if (location.state?.activeTab) {
@@ -204,6 +200,7 @@ export default function Home() {
     localStorage.removeItem("username");
     localStorage.removeItem("user_role");
     localStorage.removeItem("user_id");
+    localStorage.removeItem("avatar_url");
     navigate("/login");
   };
 
@@ -215,16 +212,15 @@ export default function Home() {
     });
   };
 
-  // Lọc danh sách Tabs dựa theo phân quyền người dùng
   const filteredTabs = TABS.filter((tab) => {
     if (tab.allowedRoles) {
       return tab.allowedRoles.includes(userRole);
     }
     return true;
   });
-  
-  const ActiveTabComponent =
-    TABS.find((tab) => tab.key === activeTab)?.component || ProblemsTab;
+
+  const activeTabEntry = filteredTabs.find((tab) => tab.key === activeTab) || filteredTabs[0] || TABS[0];
+  const ActiveTabComponent = activeTabEntry.component || ProblemsTab;
 
   const initials = username
     ? username.slice(0, 2).toUpperCase()
@@ -390,12 +386,10 @@ export default function Home() {
                 color: "#fff",
                 flexShrink: 0,
                 fontFamily: "'JetBrains Mono', monospace",
-                overflow: "hidden" // <--- ADD THIS
+                overflow: "hidden"
               }}
             >
-                            {/* V MODIFY THIS LINE V */}
               {avatarUrl ? <img src={getAvatarUrl(avatarUrl)} alt="Avatar" style={{width: '100%', height: '100%', objectFit: 'cover'}}/> : initials}
-
             </div>
             {sidebarOpen && (
               <div style={{ flex: 1, overflow: "hidden" }}>
@@ -446,7 +440,7 @@ export default function Home() {
                 <span>Dashboard</span>
                 <span>›</span>
                 <span style={{ color: c("#F8FAFC", "#0f172a"), fontWeight: 600 }}>
-                  {TABS.find((t) => t.key === activeTab)?.label}
+                  {activeTabEntry.label}
                 </span>
               </div>
             </div>
@@ -513,7 +507,7 @@ export default function Home() {
                     fontSize: 10,
                     fontWeight: 700,
                     color: "#fff",
-                    overflow: "hidden" // <--- ADD THIS
+                    overflow: "hidden"
                   }}
                 >
                   {avatarUrl ? <img src={getAvatarUrl(avatarUrl)} alt="Avatar" style={{width: '100%', height: '100%', objectFit: 'cover'}}/> : initials}

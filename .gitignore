@@ -158,7 +158,5 @@ docs/
 .github/prompts/
 # VSCode
 .vscode/
-
-# Skill
 .agents/
 .github/
