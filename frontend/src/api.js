@@ -340,6 +340,56 @@ export const deactivateUserAccount = async (userId) => {
   return response.json();
 };
 
+// ================ ADMIN ACCOUNT MANAGEMENT ENDPOINTS ================
+
+export const fetchManagedUsers = async (search = "") => {
+  const query = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
+  const sendRequest = () => fetch(`${USER_API_URL.replace("/users", "/admin/users")}${query}`, {
+    headers: getAuthHeaders(),
+  });
+
+  const response = await sendWithAuthRetry(sendRequest);
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Fetch managed users failed");
+  }
+
+  return response.json();
+};
+
+export const fetchManagedUserDetails = async (userId) => {
+  const sendRequest = () => fetch(`${USER_API_URL.replace("/users", "/admin/users")}/${userId}`, {
+    headers: getAuthHeaders(),
+  });
+
+  const response = await sendWithAuthRetry(sendRequest);
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Fetch managed user failed");
+  }
+
+  return response.json();
+};
+
+export const updateManagedUser = async (userId, accountData) => {
+  const sendRequest = () => fetch(`${USER_API_URL.replace("/users", "/admin/users")}/${userId}`, {
+    method: "PUT",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(accountData),
+  });
+
+  const response = await sendWithAuthRetry(sendRequest);
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Update managed user failed");
+  }
+
+  return response.json();
+};
+
 // ================ SUBMISSIONS / LIVE CODING ENDPOINTS ================
 
 export const createSubmission = async (submissionData) => {

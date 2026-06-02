@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom"; // Gộp chung các
 import ProblemsTab from "./tabs/ProblemsTab";
 import SubmissionsTab from "./tabs/SubmissionsTab";
 import UsersTab from "./tabs/UsersTab";
+import AccountManagementTab from "./tabs/AccountManagementTab";
 import ContestsTab from "./tabs/ContestsTab";
 import WikiTab from "./tabs/WikiTab";
 import ResearchTab from "./tabs/ResearchTab";
@@ -110,6 +111,18 @@ const TABS = [
       </svg>
     ),
     component: UsersTab,
+  },
+  {
+    key: "ACCOUNT_MANAGEMENT",
+    label: "Account Management",
+    role: "admin",
+    icon: (
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l7 4v5c0 4.418-2.985 7.875-7 9-4.015-1.125-7-4.582-7-9V7l7-4z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.5 12.5l1.6 1.6 3.4-4.2" />
+      </svg>
+    ),
+    component: AccountManagementTab,
   },
   {
     key: "CONTESTS",
@@ -221,8 +234,8 @@ export default function Home() {
     return true;
   });
 
-  const ActiveTabComponent =
-    TABS.find((tab) => tab.key === activeTab)?.component || ProblemsTab;
+  const activeTabEntry = filteredTabs.find((tab) => tab.key === activeTab) || filteredTabs[0] || TABS[0];
+  const ActiveTabComponent = activeTabEntry.component || ProblemsTab;
 
   const initials = username
     ? username.slice(0, 2).toUpperCase()
@@ -444,7 +457,7 @@ export default function Home() {
                 <span>Dashboard</span>
                 <span>›</span>
                 <span style={{ color: c("#F8FAFC", "#0f172a"), fontWeight: 600 }}>
-                  {TABS.find((t) => t.key === activeTab)?.label}
+                  {activeTabEntry.label}
                 </span>
               </div>
             </div>

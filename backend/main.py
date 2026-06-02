@@ -184,6 +184,12 @@ class UserProfileUpdate(BaseModel):
 class AccountDeactivationRequest(BaseModel):
     confirm: bool
 
+class AdminUserUpdate(BaseModel):
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    status: Optional[str] = None
+
 class RunRequest(BaseModel):
     submitted_code: str
 
@@ -456,6 +462,9 @@ def login(credentials: UserLogin, db: sqlite3.Connection = Depends(get_db)):
     
     if not user or not verify_password(credentials.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    if user["status"] != "active":
+        raise HTTPException(status_code=403, detail="Account is disabled")
     
     access_token = create_access_token(
         data={"sub": user["username"], "role": user["role"], "user_id": user["id"]},
@@ -493,8 +502,10 @@ def refresh(payload: LogoutRequest, db: sqlite3.Connection = Depends(get_db)):
     if not token_record:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
     
-    cursor.execute("SELECT id, username, role FROM users WHERE id = ?", (token_record["user_id"],))
+    cursor.execute("SELECT id, username, role, status FROM users WHERE id = ?", (token_record["user_id"],))
     user = cursor.fetchone()
+    if not user or user["status"] != "active":
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
     
     new_access_token = create_access_token(
         data={"sub": user["username"], "role": user["role"], "user_id": user["id"]},
@@ -1198,6 +1209,50 @@ def require_account_owner(cursor: sqlite3.Cursor, user_id: int, authorization: O
         raise HTTPException(status_code=403, detail="Cannot update another user's account")
     return user
 
+def require_admin_user(cursor: sqlite3.Cursor, authorization: Optional[str]) -> dict:
+    identity = get_authenticated_identity(authorization)
+    authenticated_user_id = identity.get("user_id")
+    authenticated_username = identity.get("username", "")
+
+    if authenticated_user_id is not None:
+        cursor.execute(
+            "SELECT id, username, role, status FROM users WHERE id = ?",
+            (authenticated_user_id,)
+        )
+    else:
+        cursor.execute(
+            "SELECT id, username, role, status FROM users WHERE LOWER(username) = LOWER(?)",
+            (authenticated_username,)
+        )
+
+    admin = cursor.fetchone()
+    if not admin or admin["role"] != "admin" or admin["status"] != "active":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    return dict(admin)
+
+def fetch_admin_user_record(cursor: sqlite3.Cursor, user_id: int) -> dict:
+    cursor.execute("""
+        SELECT id, username, display_name, email, role, status, avatar_url, created_at, updated_at
+        FROM users
+        WHERE id = ?
+    """, (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return dict(user)
+
+def normalize_account_status(status: str) -> str:
+    normalized = status.strip().lower()
+    if normalized not in {"active", "disabled"}:
+        raise HTTPException(status_code=400, detail="Status must be active or disabled")
+    return normalized
+
+def normalize_account_role(role: str) -> str:
+    normalized = role.strip().lower()
+    if normalized not in {"user", "contributor", "admin"}:
+        raise HTTPException(status_code=400, detail="Role must be user, contributor, or admin")
+    return normalized
+
 # Usecase : Get user profile information (for profile page and admin management)
 @app.get("/api/users/profile/{user_id}")
 def get_user_profile(user_id: int, db: sqlite3.Connection = Depends(get_db)):
@@ -1207,6 +1262,122 @@ def get_user_profile(user_id: int, db: sqlite3.Connection = Depends(get_db)):
         return {"status": "success", "data": user}
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
+
+# Usecase 1.4: Admin-only user/account management list
+@app.get("/api/admin/users")
+def list_managed_users(
+    search: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        require_admin_user(cursor, authorization)
+
+        params = []
+        where_clause = ""
+        if search and search.strip():
+            term = f"%{search.strip().lower()}%"
+            where_clause = """
+                WHERE LOWER(username) LIKE ?
+                   OR LOWER(display_name) LIKE ?
+                   OR LOWER(email) LIKE ?
+                   OR LOWER(role) LIKE ?
+                   OR LOWER(status) LIKE ?
+            """
+            params = [term, term, term, term, term]
+
+        cursor.execute(f"""
+            SELECT id, username, display_name, email, role, status, avatar_url, created_at, updated_at
+            FROM users
+            {where_clause}
+            ORDER BY created_at DESC, id DESC
+        """, params)
+        return {"status": "success", "data": [dict(row) for row in cursor.fetchall()]}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
+
+# Usecase 1.4: Admin-only user/account management details
+@app.get("/api/admin/users/{target_user_id}")
+def get_managed_user(
+    target_user_id: int,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        require_admin_user(cursor, authorization)
+        user = fetch_admin_user_record(cursor, target_user_id)
+        return {"status": "success", "data": user}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
+
+# Usecase 1.4: Admin-only user/account management update
+@app.put("/api/admin/users/{target_user_id}")
+def update_managed_user(
+    target_user_id: int,
+    payload: AdminUserUpdate,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        require_admin_user(cursor, authorization)
+        fetch_admin_user_record(cursor, target_user_id)
+
+        update_fields = []
+        params = []
+
+        if payload.display_name is not None:
+            display_name = payload.display_name.strip()
+            if not display_name:
+                raise HTTPException(status_code=400, detail="Display name is required")
+            update_fields.append("display_name = ?")
+            params.append(display_name)
+
+        if payload.email is not None:
+            email = payload.email.strip()
+            if not email:
+                raise HTTPException(status_code=400, detail="Email is required")
+            email_error = validate_email_format(email)
+            if email_error:
+                raise HTTPException(status_code=400, detail=email_error)
+            cursor.execute(
+                "SELECT 1 FROM users WHERE id != ? AND LOWER(email) = LOWER(?)",
+                (target_user_id, email)
+            )
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Email already exists")
+            update_fields.append("email = ?")
+            params.append(email)
+
+        if payload.role is not None:
+            update_fields.append("role = ?")
+            params.append(normalize_account_role(payload.role))
+
+        if payload.status is not None:
+            update_fields.append("status = ?")
+            params.append(normalize_account_status(payload.status))
+
+        if not update_fields:
+            raise HTTPException(status_code=400, detail="No account fields provided for update")
+
+        update_fields.append("updated_at = CURRENT_TIMESTAMP")
+        cursor.execute(
+            f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?",
+            params + [target_user_id]
+        )
+        db.commit()
+
+        updated_user = fetch_admin_user_record(cursor, target_user_id)
+        return {
+            "status": "success",
+            "message": "Update successful",
+            "data": updated_user,
+        }
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database execution error: {str(e)}")
 
 # Usecase : Get user profile by id (for account update flow)
 @app.get("/api/users/{user_id}")
