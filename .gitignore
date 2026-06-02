@@ -160,5 +160,5 @@ docs/
 .vscode/
 
 # Skill
-.agent/
+.agents/
 .github/
