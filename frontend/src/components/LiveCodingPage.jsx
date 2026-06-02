@@ -62,7 +62,8 @@ export default function LiveCodingPage() {
       setIsLoading(true);
       setError("");
       try {
-        const result = await fetchProblemContent(problemId);
+        // Truyền thêm currentUserId vào API
+        const result = await fetchProblemContent(problemId, currentUserId);
         const contentProblem = result?.data;
         if (contentProblem) {
           setProblem((prev) => ({
@@ -71,7 +72,6 @@ export default function LiveCodingPage() {
           }));
           
           const savedDraft = localStorage.getItem(`draft_code_${problemId}`);
-          // Lọc bản nháp an toàn trước khi nạp vào Editor để tránh nạp chuỗi rỗng/lỗi
           if (savedDraft && savedDraft.trim() !== "" && savedDraft !== "undefined" && savedDraft !== "null") {
             setCode(savedDraft);
           } else {
@@ -86,7 +86,7 @@ export default function LiveCodingPage() {
     };
 
     loadProblemContent();
-  }, [problemId]);
+  }, [problemId, currentUserId]);
 
   // 2. Tải danh sách submissions khi người dùng chuyển sang Tab Submissions
   const loadSubmissionsList = async () => {

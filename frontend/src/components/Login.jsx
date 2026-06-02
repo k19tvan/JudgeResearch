@@ -19,7 +19,6 @@ export default function Login() {
         const data = await loginUser(formData);
         
         localStorage.setItem("access_token", data.access_token);
-        localStorage.setItem("refresh_token", data.refresh_token);
         localStorage.setItem("username", formData.username);
         
         // BỔ SUNG: Lưu user_id vào localStorage để các component khác sử dụng

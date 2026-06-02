@@ -23,18 +23,24 @@ export default function Register() {
     `${inputBaseClass} ${fieldErrors[fieldName] ? inputErrorClass : inputNormalClass}`;
 
   const validatePassword = (password) => {
-    const errors = [];
-    if (password.length <= 8) {
-      errors.push("Password must be longer than 8 characters.");
-    }
-    if (!/\d/.test(password)) {
-      errors.push("Password must contain at least one digit (0-9).");
-    }
-    if (/\s/.test(password)) {
-      errors.push("Password must not contain whitespace characters.");
-    }
-    return errors;
-  };
+      const errors = [];
+      if (password.length < 8) {
+        errors.push("Password must be at least 8 characters long.");
+      }
+      if (!/[A-Z]/.test(password)) {
+        errors.push("Password must contain at least one uppercase letter (A-Z).");
+      }
+      if (!/\d/.test(password)) {
+        errors.push("Password must contain at least one digit (0-9).");
+      }
+      if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+        errors.push("Password must contain at least one special character.");
+      }
+      if (/\s/.test(password)) {
+        errors.push("Password must not contain whitespace characters.");
+      }
+      return errors;
+    };
 
   const handleChange = (e) => {
     const { name, value } = e.target;

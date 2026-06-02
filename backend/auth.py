@@ -7,7 +7,7 @@ import jwt
 
 SECRET_KEY = "your-very-secret-key"  # In production, load this from environment variables
 ALGORITHM = "HS256"
-PASSWORD_MIN_LENGTH = 9
+PASSWORD_MIN_LENGTH = 8
 USERNAME_MIN_LENGTH = 3
 USERNAME_MAX_LENGTH = 32
 USERNAME_ALLOWED_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -32,10 +32,14 @@ def validate_username(username: str):
 
 def validate_password(password: str):
     errors = []
-    if len(password) < PASSWORD_MIN_LENGTH:
-        errors.append("Password must be longer than 8 characters.")
+    if len(password) < 8:
+        errors.append("Password must be at least 8 characters long.")
+    if not re.search(r"[A-Z]", password):
+        errors.append("Password must contain at least one uppercase letter (A-Z).")
     if not re.search(r"\d", password):
         errors.append("Password must contain at least one digit (0-9).")
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        errors.append("Password must contain at least one special character.")
     if re.search(r"\s", password):
         errors.append("Password must not contain whitespace characters.")
     return errors
