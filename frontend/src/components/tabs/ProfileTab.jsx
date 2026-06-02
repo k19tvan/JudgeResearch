@@ -1,5 +1,5 @@
 // src/components/tabs/ProfileTab.jsx
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { deactivateUserAccount, fetchUserProfile, updateUserProfile } from "../../api";
 
@@ -26,23 +26,45 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [secretKey, setSecretKey] = useState("");
-  const [contributorSecretKey, setContributorSecretKey] = useState(""); // Lưu khóa cộng tác viên
+  const [contributorSecretKey, setContributorSecretKey] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
 
   const userId = localStorage.getItem("user_id");
 
-  const tone = useMemo(() => ({
-    title: isLight ? "text-slate-900" : "text-white",
-    body: isLight ? "text-slate-700" : "text-slate-300",
-    muted: isLight ? "text-slate-500" : "text-slate-400",
-    panel: isLight ? "border-slate-200 bg-white shadow-sm" : "border-white/10 bg-slate-900/40",
-    input: isLight
-      ? "border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:border-emerald-500"
-      : "border-slate-800 bg-slate-950/70 text-slate-100 placeholder-slate-600 focus:border-cyan-500",
-    divider: isLight ? "divide-slate-100" : "divide-white/5",
-    value: isLight ? "text-slate-800" : "text-slate-200",
-  }), [isLight]);
+  const t = isLight ? {
+    pageBg:       "#f1f5f9",
+    surface:      "#ffffff",
+    surfaceRaised:"#f8fafc",
+    border:       "#e2e8f0",
+    borderStrong: "#cbd5e1",
+    accent:       "#059669",
+    accentDark:   "#047857",
+    accentBg:     "#ecfdf5",
+    accentBorder: "#6ee7b7",
+    textPrimary:  "#0f172a",
+    textSecondary:"#475569",
+    textMuted:    "#94a3b8",
+    inputBg:      "#ffffff",
+    inputBorder:  "#cbd5e1",
+    shadow:       "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)",
+  } : {
+    pageBg:       "transparent",
+    surface:      "#0f172a",
+    surfaceRaised:"#111827",
+    border:       "rgba(255,255,255,0.07)",
+    borderStrong: "rgba(255,255,255,0.12)",
+    accent:       "#06b6d4",
+    accentDark:   "#0891b2",
+    accentBg:     "rgba(6,182,212,0.08)",
+    accentBorder: "rgba(6,182,212,0.3)",
+    textPrimary:  "#f1f5f9",
+    textSecondary:"#64748b",
+    textMuted:    "#475569",
+    inputBg:      "#0c1524",
+    inputBorder:  "rgba(255,255,255,0.08)",
+    shadow:       "none",
+  };
 
   const getAvatarUrl = (url) => {
     if (!url) return null;
@@ -82,13 +104,6 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
   useEffect(() => {
     loadUserProfile();
   }, [userId]);
-
-  const getInputClass = (field) => {
-    const errorClass = isLight
-      ? "border-red-400 focus:border-red-500"
-      : "border-red-500/70 focus:border-red-400";
-    return `mt-1.5 w-full rounded-lg border px-3 py-2.5 text-sm outline-none ${fieldErrors[field] ? errorClass : tone.input}`;
-  };
 
   const validateProfileForm = () => {
     const nextErrors = {};
@@ -259,7 +274,6 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
     }
   };
 
-  // Logic nâng cấp tài khoản lên Contributor
   const handleBecomeContributor = async (e) => {
     e.preventDefault();
     setError("");
@@ -296,7 +310,6 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
     }
   };
 
-  // Logic nâng cấp tài khoản lên Admin
   const handleBecomeAdmin = async (e) => {
     e.preventDefault();
     setError("");
@@ -361,35 +374,85 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
         .split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
     : "?";
 
+  const inputStyle = {
+    width: "100%", boxSizing: "border-box",
+    background: t.inputBg,
+    border: `1px solid ${t.inputBorder}`,
+    borderRadius: 7, padding: "9px 12px",
+    fontSize: 13, color: t.textPrimary,
+    outline: "none", transition: "border-color 0.15s, box-shadow 0.15s",
+    fontFamily: "inherit",
+  };
+
+  const labelStyle = {
+    display: "block", fontSize: 11, fontWeight: 600,
+    color: t.textSecondary, letterSpacing: "0.06em",
+    textTransform: "uppercase", marginBottom: 6,
+  };
+
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2">
-        <div className={`h-1.5 w-1.5 rounded-full animate-bounce ${isLight ? "bg-slate-400" : "bg-slate-500"}`} style={{ animationDelay: "0ms" }} />
-        <div className={`h-1.5 w-1.5 rounded-full animate-bounce ${isLight ? "bg-slate-400" : "bg-slate-500"}`} style={{ animationDelay: "150ms" }} />
-        <div className={`h-1.5 w-1.5 rounded-full animate-bounce ${isLight ? "bg-slate-400" : "bg-slate-500"}`} style={{ animationDelay: "300ms" }} />
-        <span className={`text-sm ${tone.muted}`}>Loading profile...</span>
+      <div style={{ fontFamily: "'Inter var', 'Inter', sans-serif", color: t.textSecondary, fontSize: 13 }}>
+        <p className="animate-pulse">Loading profile...</p>
       </div>
     );
   }
 
   return (
-    <section className="space-y-8 max-w-3xl">
-      <div className="flex items-center justify-between">
+    <div style={{ fontFamily: "'Inter var', 'Inter', sans-serif", maxWidth: 768, margin: "0 auto" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap');
+        .tk-input:focus {
+          border-color: ${t.accent} !important;
+          box-shadow: 0 0 0 3px ${t.accentBg} !important;
+        }
+        .tk-primary:hover { background: ${t.accentDark} !important; }
+        .tk-ghost:hover { background: ${isLight ? "#f1f5f9" : "rgba(255,255,255,0.05)"} !important; }
+      `}</style>
+
+      {/* ── Page Header ── */}
+      <div style={{
+        display: "flex", alignItems: "flex-start",
+        justifyContent: "space-between", marginBottom: 24, gap: 16, flexWrap: "wrap",
+      }}>
         <div>
-          <h2 className={`text-2xl font-bold tracking-wide ${tone.title}`}>USER PROFILE</h2>
-          <p className={`mt-1 text-sm ${tone.muted}`}>Manage your personal details and account privileges.</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 5 }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: 8,
+              background: isLight ? "#059669" : "rgba(6,182,212,0.12)",
+              border: isLight ? "none" : "1px solid rgba(6,182,212,0.2)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isLight ? "#fff" : "#22d3ee"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </div>
+            <h2 style={{
+              margin: 0, fontSize: 18, fontWeight: 700,
+              color: t.textPrimary, letterSpacing: "-0.02em",
+            }}>
+              User Profile
+            </h2>
+          </div>
+          <p style={{ margin: 0, fontSize: 12, color: t.textSecondary, lineHeight: 1.5, paddingLeft: 40 }}>
+            Manage your personal details and account privileges.
+          </p>
         </div>
+
         {profile && (
-          <div className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold border ${
-            isLight
-              ? "bg-slate-100 border-slate-200 text-slate-600"
-              : "bg-slate-800 border-white/10 text-slate-300"
-          }`}>
+          <div style={{
+            width: 44, height: 44, borderRadius: "50%",
+            background: isLight ? "#e2e8f0" : "rgba(255,255,255,0.05)",
+            border: `1.5px solid ${t.border}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 14, fontWeight: 700, color: t.textPrimary, overflow: "hidden", flexShrink: 0
+          }}>
             {profile.avatar_url ? (
               <img
                 src={getAvatarUrl(profile.avatar_url)}
-                alt=""
-                className="h-full w-full rounded-full object-cover"
+                alt="Avatar"
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
               />
             ) : initials}
           </div>
@@ -397,104 +460,119 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
       </div>
 
       {(success || error) && (
-        <div className={`rounded-lg border p-3 text-xs ${
-          error
-            ? (isLight ? "border-red-200 bg-red-50 text-red-700" : "border-red-500/30 bg-red-500/10 text-red-300")
-            : (isLight ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300")
-        }`}>
+        <div style={{
+          marginBottom: 20, padding: "10px 14px", borderRadius: 8,
+          background: error ? (isLight ? "#fff1f2" : "rgba(239,68,68,0.08)") : (isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)"),
+          border: `1px solid ${error ? (isLight ? "#fecdd3" : "rgba(239,68,68,0.2)") : (isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)")}`,
+          color: error ? (isLight ? "#be123c" : "#f87171") : (isLight ? "#065f46" : "#34d399"), fontSize: 12,
+        }}>
           {error || success}
         </div>
       )}
 
       {profile && (
-        <div className={`rounded-lg border ${tone.panel}`}>
-          <div className={`px-6 py-3 border-b text-xs font-semibold uppercase tracking-widest ${tone.muted} ${isLight ? "border-slate-100" : "border-white/5"}`}>
+        <div style={{
+          background: t.surface,
+          border: `1px solid ${t.border}`,
+          borderRadius: 12, overflow: "hidden",
+          boxShadow: t.shadow, marginBottom: 24,
+        }}>
+          <div style={{
+            padding: "12px 20px", background: isLight ? "#f8fafc" : "rgba(255,255,255,0.02)",
+            borderBottom: `1px solid ${t.border}`,
+            fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: t.textSecondary
+          }}>
             Personal Information
           </div>
 
           {!isEditing ? (
-            <>
-              <div className={`grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x ${isLight ? "divide-slate-100" : "divide-white/5"}`}>
-                {[
-                  { label: "Username", value: `@${profile.username}`, mono: true },
-                  { label: "Display Name", value: profile.display_name, mono: false },
-                  { label: "Email", value: profile.email, mono: true, small: true },
-                  { label: "Avatar", value: profile.avatar_url ? "Custom" : "Initials", mono: false },
-                ].map(({ label, value, mono, small }) => (
-                  <div key={label} className="px-6 py-4 space-y-1">
-                    <p className={`text-xs uppercase font-semibold ${tone.muted}`}>{label}</p>
-                    <p className={`font-semibold ${small ? "text-xs" : "text-sm"} ${mono ? "font-mono" : ""} ${tone.value} truncate`}>
-                      {value}
-                    </p>
-                  </div>
-                ))}
+            <div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", borderBottom: `1px solid ${t.border}` }}>
+                <div style={{ padding: "16px 20px", borderRight: `1px solid ${t.border}` }}>
+                  <span style={{ display: "block", fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: t.textMuted, marginBottom: 4 }}>Username</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary, fontFamily: "'DM Mono', monospace" }}>@{profile.username}</span>
+                </div>
+                <div style={{ padding: "16px 20px" }}>
+                  <span style={{ display: "block", fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: t.textMuted, marginBottom: 4 }}>Display Name</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary }}>{profile.display_name}</span>
+                </div>
               </div>
-
-              <div className={`px-6 py-3 flex items-center justify-between border-t ${isLight ? "border-slate-100 bg-slate-50/50" : "border-white/5 bg-white/[0.02]"}`}>
-                <span className={`text-xs uppercase font-semibold ${tone.muted}`}>Account Role</span>
-                <span className={`text-xs font-bold uppercase px-3 py-1 rounded-full border ${
-                  profile.role === "admin"
-                    ? "text-rose-400 bg-rose-500/10 border-rose-500/20"
-                    : profile.role === "contributor"
-                    ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
-                    : "text-cyan-400 bg-cyan-500/10 border-cyan-500/20"
-                }`}>
-                  {profile.role}
-                </span>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", borderBottom: `1px solid ${t.border}` }}>
+                <div style={{ padding: "16px 20px", borderRight: `1px solid ${t.border}` }}>
+                  <span style={{ display: "block", fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: t.textMuted, marginBottom: 4 }}>Email Address</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary, fontFamily: "'DM Mono', monospace" }}>{profile.email}</span>
+                </div>
+                <div style={{ padding: "16px 20px" }}>
+                  <span style={{ display: "block", fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: t.textMuted, marginBottom: 4 }}>Account Role</span>
+                  <span style={{
+                    display: "inline-flex", padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+                    background: profile.role === "admin" ? (isLight ? "#fff1f2" : "rgba(239,68,68,0.1)") : (profile.role === "contributor" ? (isLight ? "#fffbeb" : "rgba(245,158,11,0.1)") : (isLight ? "#f0f9ff" : "rgba(6,182,212,0.1)")),
+                    color: profile.role === "admin" ? (isLight ? "#be123c" : "#f87171") : (profile.role === "contributor" ? (isLight ? "#d97706" : "#fbbf24") : (isLight ? "#0369a1" : "#22d3ee")),
+                    border: `1px solid ${profile.role === "admin" ? (isLight ? "#fecdd3" : "rgba(239,68,68,0.2)") : (profile.role === "contributor" ? (isLight ? "#fde68a" : "rgba(245,158,11,0.2)") : (isLight ? "#bae6fd" : "rgba(6,182,212,0.2)"))}`,
+                  }}>
+                    {profile.role}
+                  </span>
+                </div>
               </div>
-
-              <div className={`px-6 py-4 border-t ${isLight ? "border-slate-100" : "border-white/5"}`}>
+              <div style={{ padding: "16px 20px" }}>
                 <button
                   type="button"
                   onClick={handleEdit}
-                  className="rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
+                  className="tk-primary"
+                  style={{
+                    background: t.accent, border: "none", color: "#fff",
+                    borderRadius: 7, padding: "8px 20px",
+                    fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    transition: "background 0.15s",
+                    boxShadow: isLight ? "0 1px 3px rgba(5,150,105,0.35)" : "none",
+                  }}
                 >
                   Edit Profile
                 </button>
               </div>
-            </>
+            </div>
           ) : (
-            <form onSubmit={handleUpdateProfile} className="px-6 py-5 space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className={`block text-xs font-semibold uppercase ${tone.muted}`}>
-                  Username
+            <form onSubmit={handleUpdateProfile} style={{ padding: 20 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <div>
+                  <label style={labelStyle}>Username</label>
                   <input
                     name="username"
                     value={formData.username}
                     onChange={handleChange}
-                    className={getInputClass("username")}
-                    aria-invalid={fieldErrors.username ? "true" : "false"}
+                    className="tk-input"
+                    style={inputStyle}
                   />
-                </label>
-                <label className={`block text-xs font-semibold uppercase ${tone.muted}`}>
-                  Display Name
+                </div>
+                <div>
+                  <label style={labelStyle}>Display Name</label>
                   <input
                     name="display_name"
                     value={formData.display_name}
                     onChange={handleChange}
-                    className={getInputClass("display_name")}
-                    aria-invalid={fieldErrors.display_name ? "true" : "false"}
+                    className="tk-input"
+                    style={inputStyle}
                   />
-                </label>
+                </div>
               </div>
-              <label className={`block text-xs font-semibold uppercase ${tone.muted}`}>
-                Email
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>Email</label>
                 <input
                   type="email"
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
-                  className={getInputClass("email")}
-                  aria-invalid={fieldErrors.email ? "true" : "false"}
+                  className="tk-input"
+                  style={inputStyle}
                 />
-              </label>
-              <label className={`block text-xs font-semibold uppercase ${tone.muted}`}>
-                Avatar
-                <div className="mt-1.5 flex items-center gap-4">
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>Avatar</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   {avatarPreview ? (
-                    <img src={avatarPreview} alt="Avatar preview" className="w-12 h-12 rounded-full object-cover border border-slate-200" />
+                    <img src={avatarPreview} alt="Preview" style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", border: `1px solid ${t.border}` }} />
                   ) : (
-                    <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 text-xs font-bold border border-slate-300">
+                    <div style={{ width: 44, height: 44, borderRadius: "50%", background: isLight ? "#f1f5f9" : "rgba(255,255,255,0.05)", border: `1px solid ${t.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>
                       {initials}
                     </div>
                   )}
@@ -503,44 +581,49 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
                     accept="image/jpeg, image/png, image/webp"
                     onChange={handleFileChange}
                     ref={fileInputRef}
-                    className={`block w-full text-sm ${isLight ? "text-slate-500" : "text-slate-400"}
-                      file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0
-                      file:text-xs file:font-semibold
-                      ${isLight ? "file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100" : "file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20"}
-                    `}
-                    aria-invalid={fieldErrors.avatar_file ? "true" : "false"}
+                    style={{ fontSize: 12, color: t.textSecondary }}
                   />
                 </div>
-              </label>
-              <label className={`block text-xs font-semibold uppercase ${tone.muted}`}>
-                New Password
+              </div>
+              <div style={{ marginBottom: 20 }}>
+                <label style={labelStyle}>New Password</label>
                 <input
                   type="password"
                   name="password"
                   value={formData.password}
                   onChange={handleChange}
                   placeholder="Leave blank to keep current password"
-                  className={getInputClass("password")}
-                  aria-invalid={fieldErrors.password ? "true" : "false"}
+                  className="tk-input"
+                  style={inputStyle}
                 />
-              </label>
-              <div className="flex flex-wrap gap-3">
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="tk-primary"
+                  style={{
+                    background: t.accent, border: "none", color: "#fff",
+                    borderRadius: 7, padding: "8px 20px",
+                    fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    transition: "background 0.15s",
+                    boxShadow: isLight ? "0 1px 3px rgba(5,150,105,0.35)" : "none",
+                  }}
                 >
-                  {isSubmitting ? "UPDATING..." : "UPDATE"}
+                  {isSubmitting ? "Updating..." : "Update"}
                 </button>
                 <button
                   type="button"
                   onClick={handleBack}
-                  disabled={isSubmitting}
-                  className={`rounded-lg border px-4 py-2.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                    isLight ? "border-slate-300 text-slate-700 hover:bg-slate-100" : "border-white/10 text-slate-300 hover:bg-white/5"
-                  }`}
+                  className="tk-ghost"
+                  style={{
+                    background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary,
+                    borderRadius: 7, padding: "8px 20px",
+                    fontSize: 12, fontWeight: 500, cursor: "pointer",
+                    transition: "background 0.15s",
+                  }}
                 >
-                  BACK
+                  Cancel
                 </button>
               </div>
             </form>
@@ -548,112 +631,148 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
         </div>
       )}
 
-      {/* ELEVATE PRIVILEGES PANEL */}
-      <div className={`rounded-lg border ${tone.panel}`}>
-        <div className={`px-6 py-3 border-b text-xs font-semibold uppercase tracking-widest ${tone.muted} ${isLight ? "border-slate-100" : "border-white/5"}`}>
+      {/* ── Elevate Privileges Panel ── */}
+      <div style={{
+        background: t.surface,
+        border: `1px solid ${t.border}`,
+        borderRadius: 12, overflow: "hidden",
+        boxShadow: t.shadow, marginBottom: 24,
+      }}>
+        <div style={{
+          padding: "12px 20px", background: isLight ? "#f8fafc" : "rgba(255,255,255,0.02)",
+          borderBottom: `1px solid ${t.border}`,
+          fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: t.textSecondary
+        }}>
           Elevate Privileges
         </div>
 
-        <div className="px-6 py-5 space-y-6">
+        <div style={{ padding: 20 }}>
           {profile?.role === "user" && (
-            <div className="flex flex-col md:flex-row md:items-start gap-6 border-b border-white/5 pb-6">
-              <div className="md:w-1/2 space-y-1">
-                <p className={`text-sm font-semibold ${tone.body}`}>Become a Contributor</p>
-                <p className={`text-xs leading-relaxed ${tone.muted}`}>
+            <div style={{ display: "flex", gap: 16, borderBottom: `1px solid ${t.border}`, paddingBottom: 20, marginBottom: 20, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <p style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 700, color: t.textPrimary }}>Become a Contributor</p>
+                <p style={{ margin: 0, fontSize: 11, color: t.textSecondary, lineHeight: 1.5 }}>
                   Enter a contributor invitation code to gain problem creation capabilities and research roadmaps access.
                 </p>
               </div>
-
-              <form onSubmit={handleBecomeContributor} className="md:w-1/2 space-y-3">
-                <label className={`block text-xs font-semibold uppercase ${tone.muted}`}>
-                  Contributor Secret Key
+              <form onSubmit={handleBecomeContributor} style={{ width: 280, display: "flex", flexDirection: "column", gap: 10 }}>
+                <label style={labelStyle}>
+                  Contributor Key
                   <input
                     type="password"
                     required
                     value={contributorSecretKey}
                     onChange={(e) => setContributorSecretKey(e.target.value)}
-                    placeholder="Enter contributor key..."
-                    className={`mt-1.5 w-full rounded-lg border px-3 py-2.5 text-sm outline-none font-mono ${tone.input}`}
+                    className="tk-input"
+                    style={{ ...inputStyle, padding: "7px 10px", marginTop: 4 }}
                   />
                 </label>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full rounded-lg bg-amber-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-amber-500 disabled:opacity-60"
+                  className="tk-primary"
+                  style={{
+                    background: t.accent, border: "none", color: "#fff",
+                    borderRadius: 7, padding: "8px 12px",
+                    fontSize: 11, fontWeight: 700, cursor: "pointer",
+                    textTransform: "uppercase", letterSpacing: "0.04em"
+                  }}
                 >
-                  {isSubmitting ? "VERIFYING..." : "ACTIVATE CONTRIBUTOR PRIVILEGES"}
+                  Activate Contributor
                 </button>
               </form>
             </div>
           )}
 
           {profile?.role !== "admin" ? (
-            <div className="flex flex-col md:flex-row md:items-start gap-6">
-              <div className="md:w-1/2 space-y-1">
-                <p className={`text-sm font-semibold ${tone.body}`}>Activate Admin Access</p>
-                <p className={`text-xs leading-relaxed ${tone.muted}`}>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <p style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 700, color: t.textPrimary }}>Activate Admin Access</p>
+                <p style={{ margin: 0, fontSize: 11, color: t.textSecondary, lineHeight: 1.5 }}>
                   If you have an invitation key or system master token, enter it to gain admin roles to approve requests.
                 </p>
               </div>
-
-              <form onSubmit={handleBecomeAdmin} className="md:w-1/2 space-y-3">
-                <label className={`block text-xs font-semibold uppercase ${tone.muted}`}>
+              <form onSubmit={handleBecomeAdmin} style={{ width: 280, display: "flex", flexDirection: "column", gap: 10 }}>
+                <label style={labelStyle}>
                   Admin Secret Key
                   <input
                     type="password"
                     required
                     value={secretKey}
                     onChange={(e) => setSecretKey(e.target.value)}
-                    placeholder="Enter key to verify..."
-                    className={`mt-1.5 w-full rounded-lg border px-3 py-2.5 text-sm outline-none font-mono ${tone.input}`}
+                    className="tk-input"
+                    style={{ ...inputStyle, padding: "7px 10px", marginTop: 4 }}
                   />
                 </label>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
+                  className="tk-primary"
+                  style={{
+                    background: t.accent, border: "none", color: "#fff",
+                    borderRadius: 7, padding: "8px 12px",
+                    fontSize: 11, fontWeight: 700, cursor: "pointer",
+                    textTransform: "uppercase", letterSpacing: "0.04em"
+                  }}
                 >
-                  {isSubmitting ? "VERIFYING..." : "ACTIVATE ADMIN PRIVILEGES"}
+                  Activate Admin
                 </button>
               </form>
             </div>
           ) : (
-            <div className={`flex items-center gap-4 rounded-lg border p-4 ${
-              isLight ? "border-emerald-200 bg-emerald-50/50" : "border-emerald-500/20 bg-emerald-500/5"
-            }`}>
-              <div className={`text-xs font-bold ${isLight ? "text-emerald-600" : "text-emerald-400"}`}>OK</div>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: 8,
+              background: isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)",
+              border: `1px solid ${isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)"}`,
+              color: isLight ? "#065f46" : "#34d399"
+            }}>
+              <span style={{ fontSize: 14 }}>🛡️</span>
               <div>
-                <p className={`text-xs font-bold uppercase tracking-wider ${isLight ? "text-emerald-700" : "text-emerald-400"}`}>
-                  Admin Privileges Active
-                </p>
-                <p className={`text-[11px] mt-0.5 ${isLight ? "text-slate-600" : "text-slate-400"}`}>
-                  You are already a system administrator.
-                </p>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, textTransform: "uppercase" }}>Admin Privileges Active</p>
+                <p style={{ margin: "2px 0 0", fontSize: 11, opacity: 0.8 }}>You are already a system administrator.</p>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* ACCOUNT DEACTIVATION PANEL */}
-      <div className={`rounded-lg border ${isLight ? "border-red-200 bg-red-50/70" : "border-red-500/20 bg-red-500/5"}`}>
-        <div className={`px-6 py-3 border-b text-xs font-semibold uppercase tracking-widest ${isLight ? "border-red-100 text-red-700" : "border-red-500/20 text-red-300"}`}>
+      {/* ── Deactivation Panel ── */}
+      <div style={{
+        background: isLight ? "#fff1f2" : "rgba(244,63,94,0.03)",
+        border: `1px solid ${isLight ? "#fecdd3" : "rgba(244,63,94,0.15)"}`,
+        borderRadius: 12, overflow: "hidden", marginBottom: 24,
+      }}>
+        <div style={{
+          padding: "12px 20px", background: isLight ? "#ffe4e6" : "rgba(244,63,94,0.06)",
+          borderBottom: `1px solid ${isLight ? "#fecdd3" : "rgba(244,63,94,0.15)"}`,
+          fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em",
+          color: isLight ? "#be123c" : "#fb7185"
+        }}>
           Account Deactivation
         </div>
-        <div className="px-6 py-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <p className={`text-sm ${isLight ? "text-red-700" : "text-red-200"}`}>
+        <div style={{ padding: 20, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <p style={{ margin: 0, fontSize: 12, color: isLight ? "#9f1239" : "#fca5a5" }}>
             Permanently delete this account and its associated data.
           </p>
           <button
             type="button"
             onClick={handleDeactivateAccount}
             disabled={isDeactivating}
-            className="rounded-lg bg-red-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+            style={{
+              background: isLight ? "#e11d48" : "transparent",
+              border: isLight ? "none" : "1px solid rgba(244,63,94,0.3)",
+              color: isLight ? "#fff" : "#fb7185",
+              padding: "8px 16px", borderRadius: 7,
+              fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+              cursor: "pointer", transition: "all 0.15s",
+              textTransform: "uppercase",
+              opacity: isDeactivating ? 0.6 : 1
+            }}
           >
-            {isDeactivating ? "DEACTIVATING..." : "DEACTIVATE ACCOUNT"}
+            {isDeactivating ? "Deactivating..." : "Deactivate Account"}
           </button>
         </div>
       </div>
-    </section>
+    </div>
   );
 }

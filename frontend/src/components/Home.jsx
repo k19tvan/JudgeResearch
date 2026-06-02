@@ -1,4 +1,4 @@
-// Thay đổi và bổ sung trong Paste June 03, 2026 - 12:28AM
+// Paste June 03, 2026 - 2:45AM (Fixed Sidebar Height & Sticky Layout)
 
 import React, { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -16,8 +16,378 @@ import AdminQueueTab from "./tabs/AdminQueueTab";
 import BlogsTab from "./tabs/BlogsTab";
 import TicketsTab from "./tabs/TicketsTab";
 
-function IntroTab({ isLight }) {
-  // Giữ nguyên...
+function IntroTab({ isLight, onNavigate, username, userRole }) {
+  const [stats, setStats] = useState({ problems: 0, submissions: 0, users: 0, contests: 0 });
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  const t = {
+    pageBg: isLight ? "#eaf2f0" : "#080C14",
+    surface: isLight ? "#ffffff" : "#0D1117",
+    surfaceAlt: isLight ? "#f0faf6" : "#111827",
+    border: isLight ? "rgba(15,23,42,0.10)" : "rgba(255,255,255,0.06)",
+    accent: isLight ? "#059669" : "#10B981",
+    accentDim: isLight ? "rgba(5,150,105,0.12)" : "rgba(16,185,129,0.10)",
+    accentBorder: isLight ? "rgba(5,150,105,0.30)" : "rgba(16,185,129,0.28)",
+    textPrimary: isLight ? "#0f172a" : "#F1F5F9",
+    textSecondary: isLight ? "#475569" : "#64748B",
+    textMuted: isLight ? "#94a3b8" : "#334155",
+    shadow: isLight ? "0 1px 10px rgba(15,23,42,0.08)" : "0 1px 10px rgba(0,0,0,0.35)",
+  };
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const token = localStorage.getItem("access_token");
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const [probRes, subRes, userRes] = await Promise.allSettled([
+          fetch("http://localhost:21081/api/problems/filter?filter_mode=all", { headers }),
+          fetch("http://localhost:21081/api/submissions", { headers }),
+          fetch("http://localhost:21081/api/admin/users", { headers }),
+        ]);
+
+        const prob = probRes.status === "fulfilled" && probRes.value.ok ? await probRes.value.json() : null;
+        const subs = subRes.status === "fulfilled" && subRes.value.ok ? await subRes.value.json() : null;
+        const usrs = userRes.status === "fulfilled" && userRes.value.ok ? await userRes.value.json() : null;
+
+        const probCount = prob?.data ? prob.data.length : (Array.isArray(prob) ? prob.length : 0);
+        const subsCount = subs?.data ? subs.data.length : (Array.isArray(subs) ? subs.length : 0);
+        const usersCount = usrs?.data ? usrs.data.length : (Array.isArray(usrs) ? usrs.length : 0);
+
+        setStats({
+          problems: probCount,
+          submissions: subsCount,
+          users: usersCount,
+          contests: 0,
+        });
+      } catch (_) { /* graceful silence */ }
+      finally { setLoadingStats(false); }
+    }
+    loadStats();
+  }, []);
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+
+  const quickCards = [
+    {
+      key: "PROBLEMS", label: "Problems", color: "#6366f1", bg: "rgba(99,102,241,0.10)",
+      border: "rgba(99,102,241,0.25)",
+      desc: "Solve machine learning & core algorithmic problems",
+      icon: (
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0120 9.414V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
+    },
+    {
+      key: "SUBMISSIONS", label: "Submissions", color: "#10B981", bg: "rgba(16,185,129,0.10)",
+      border: "rgba(16,185,129,0.25)",
+      desc: "Track your code submission history and execution results",
+      icon: (
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+        </svg>
+      ),
+    },
+    {
+      key: "CONTESTS", label: "Contests", color: "#f59e0b", bg: "rgba(245,158,11,0.10)",
+      border: "rgba(245,158,11,0.25)",
+      desc: "Participate in real-time AI and programming contests",
+      icon: (
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138z" />
+        </svg>
+      ),
+    },
+    {
+      key: "BLOGS", label: "Blogs", color: "#ec4899", bg: "rgba(236,72,153,0.10)",
+      border: "rgba(236,72,153,0.25)",
+      desc: "Read & share technical expertise with the community",
+      icon: (
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 4a2 2 0 012 2v5a2 2 0 01-2 2z" />
+        </svg>
+      ),
+    },
+    {
+      key: "WIKI", label: "Wiki", color: "#06b6d4", bg: "rgba(6,182,212,0.10)",
+      border: "rgba(6,182,212,0.25)",
+      desc: "Search for platform documentation & baseline knowledge",
+      icon: (
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+        </svg>
+      ),
+    },
+    {
+      key: "TICKETS", label: "Support Tickets", color: "#8b5cf6", bg: "rgba(139,92,246,0.10)",
+      border: "rgba(139,92,246,0.25)",
+      desc: "Raise technical assistance tickets to administrator staff",
+      icon: (
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
+        </svg>
+      ),
+    },
+  ];
+
+  const features = [
+    { icon: "🧠", title: "AI-Powered Judge", desc: "AI-integrated grading system evaluating Python/ML code with detailed feedback per testcase." },
+    { icon: "🏆", title: "Live Contests", desc: "Participate in real-time AI and programming contests with instantly updated leaderboards." },
+    { icon: "📚", title: "Research Roadmap", desc: "Personalized research roadmaps built with AI, from basic algorithms to advanced Deep Learning." },
+    { icon: "🤝", title: "Community Hub", desc: "Share blogs, discuss technical problems, and connect with other researchers." },
+  ];
+
+  const statCards = [
+    { label: "Problems", value: stats.problems, icon: "📝", color: "#6366f1", sub: "Total Problems" },
+    { label: "Submissions", value: stats.submissions, icon: "🚀", color: "#10B981", sub: "Submissions Run" },
+    { label: "Members", value: stats.users, icon: "👥", color: "#f59e0b", sub: "Registered Users" },
+    { label: "Contests", value: stats.contests, icon: "🏆", color: "#ec4899", sub: "Active Contests" },
+  ];
+
+  return (
+    <>
+      <style>{`
+        .intro-card { transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; }
+        .intro-card:hover { transform: translateY(-3px); }
+        .intro-quick-card { transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; cursor: pointer; }
+        .intro-quick-card:hover { transform: translateY(-4px); }
+        .intro-feat-card { transition: transform 0.18s ease, background 0.18s ease; }
+        .intro-feat-card:hover { transform: translateY(-2px); }
+        @keyframes heroPulse {
+          0%,100% { opacity: 0.7; } 50% { opacity: 1; }
+        }
+        @keyframes floatDot {
+          0%,100% { transform: translateY(0px); }
+          50% { transform: translateY(-8px); }
+        }
+        .hero-dot { animation: floatDot 3s ease-in-out infinite; }
+        .hero-dot:nth-child(2) { animation-delay: 0.5s; }
+        .hero-dot:nth-child(3) { animation-delay: 1s; }
+        .stat-shimmer { animation: heroPulse 2s ease-in-out infinite; }
+      `}</style>
+
+      <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", flexDirection: "column", gap: 32 }}>
+
+        {/* ── Hero Banner ── */}
+        <div
+          style={{
+            borderRadius: 20,
+            overflow: "hidden",
+            position: "relative",
+            background: isLight
+              ? "linear-gradient(135deg, #064e3b 0%, #065f46 40%, #0891b2 100%)"
+              : "linear-gradient(135deg, #0a1628 0%, #0d2137 40%, #0a2540 100%)",
+            border: `1px solid ${isLight ? "rgba(255,255,255,0.15)" : "rgba(16,185,129,0.15)"}`,
+            boxShadow: isLight ? "0 8px 40px rgba(6,78,59,0.25)" : "0 8px 40px rgba(0,0,0,0.5)",
+            padding: "48px 48px 40px",
+            minHeight: 220,
+          }}
+        >
+          <div style={{ position: "absolute", top: -40, right: -40, width: 260, height: 260, borderRadius: "50%", background: "radial-gradient(circle, rgba(16,185,129,0.18) 0%, transparent 70%)", pointerEvents: "none" }} />
+          <div style={{ position: "absolute", bottom: -60, left: 120, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle, rgba(6,182,212,0.12) 0%, transparent 70%)", pointerEvents: "none" }} />
+
+          <div style={{ position: "absolute", top: 32, right: 60, display: "flex", gap: 12 }}>
+            {["#10B981", "#06b6d4", "#6366f1"].map((col, i) => (
+              <div key={i} className="hero-dot" style={{ width: 10, height: 10, borderRadius: "50%", background: col, opacity: 0.7, animationDelay: `${i * 0.4}s` }} />
+            ))}
+          </div>
+
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(16,185,129,0.18)", border: "1px solid rgba(16,185,129,0.35)", borderRadius: 20, padding: "4px 12px", marginBottom: 18 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#34d399", display: "inline-block" }} />
+            <span style={{ fontSize: 11, fontWeight: 600, color: "#6ee7b7", letterSpacing: "0.08em", fontFamily: "'JetBrains Mono', monospace" }}>ML ONLINE JUDGE</span>
+          </div>
+
+          <h1 style={{ fontSize: 32, fontWeight: 700, color: "#fff", marginBottom: 10, lineHeight: 1.25, letterSpacing: "-0.5px" }}>
+            {greeting}, <span style={{ color: "#34d399" }}>{username || "Researcher"}</span> 👋
+          </h1>
+          <p style={{ fontSize: 15, color: "rgba(255,255,255,0.65)", maxWidth: 520, lineHeight: 1.65, marginBottom: 28 }}>
+            Welcome back to <strong style={{ color: "rgba(255,255,255,0.85)" }}>Judge Research</strong> — an AI-powered training & research platform designed for the AI community.
+          </p>
+
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <button
+              onClick={() => onNavigate && onNavigate("PROBLEMS")}
+              style={{
+                background: "linear-gradient(135deg, #10B981, #059669)",
+                border: "none", borderRadius: 10, padding: "10px 22px",
+                fontSize: 14, fontWeight: 600, color: "#fff", cursor: "pointer",
+                boxShadow: "0 4px 18px rgba(16,185,129,0.35)",
+                display: "flex", alignItems: "center", gap: 8,
+              }}
+            >
+              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+              Start Practicing
+            </button>
+            <button
+              onClick={() => onNavigate && onNavigate("RESEARCH")}
+              style={{
+                background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: 10, padding: "10px 22px",
+                fontSize: 14, fontWeight: 500, color: "rgba(255,255,255,0.85)", cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 8,
+              }}
+            >
+              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+              Research Roadmap
+            </button>
+          </div>
+
+          <div style={{ position: "absolute", top: 20, right: 20 }}>
+            <span style={{
+              background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 6, padding: "3px 10px", fontSize: 11, color: "rgba(255,255,255,0.7)",
+              fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, textTransform: "uppercase",
+            }}>
+              {userRole}
+            </span>
+          </div>
+        </div>
+
+        {/* ── Stats Cards ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+          {statCards.map((s) => (
+            <div
+              key={s.label}
+              className="intro-card"
+              style={{
+                background: t.surface, border: `1px solid ${t.border}`,
+                borderRadius: 14, padding: "20px 22px",
+                boxShadow: t.shadow,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <span style={{ fontSize: 22 }}>{s.icon}</span>
+                <div style={{
+                  width: 8, height: 8, borderRadius: "50%",
+                  background: s.color, boxShadow: `0 0 8px ${s.color}66`,
+                }} />
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: t.textPrimary, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>
+                {loadingStats ? <span className="stat-shimmer" style={{ color: t.textSecondary }}>—</span> : s.value.toLocaleString()}
+              </div>
+              <div style={{ fontSize: 12, color: t.textSecondary, marginTop: 6 }}>{s.sub}</div>
+              <div style={{ marginTop: 10, height: 3, borderRadius: 2, background: t.border, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: s.value > 0 ? "100%" : "20%", background: `linear-gradient(90deg, ${s.color}66, ${s.color})`, borderRadius: 2, transition: "width 1s ease" }} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Quick Navigation ── */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <div style={{ width: 3, height: 18, borderRadius: 2, background: "linear-gradient(180deg, #10B981, #059669)" }} />
+            <span style={{ fontSize: 15, fontWeight: 600, color: t.textPrimary }}>Quick Navigation</span>
+            <span style={{ fontSize: 12, color: t.textSecondary, marginLeft: 4 }}>— Choose a module to begin</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+            {quickCards.map((card) => (
+              <div
+                key={card.key}
+                className="intro-quick-card"
+                onClick={() => onNavigate && onNavigate(card.key)}
+                style={{
+                  background: t.surface, border: `1px solid ${t.border}`,
+                  borderRadius: 14, padding: "20px 20px",
+                  boxShadow: t.shadow, position: "relative", overflow: "hidden",
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.borderColor = card.border;
+                  e.currentTarget.style.boxShadow = `0 8px 28px ${card.color}18`;
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = t.border;
+                  e.currentTarget.style.boxShadow = t.shadow;
+                }}
+              >
+                <div style={{ position: "absolute", top: 0, right: 0, width: 80, height: 80, borderRadius: "0 14px 0 80px", background: card.bg, opacity: 0.6 }} />
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 14, position: "relative" }}>
+                  <div style={{
+                    width: 44, height: 44, borderRadius: 12,
+                    background: card.bg, border: `1px solid ${card.border}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: card.color, flexShrink: 0,
+                  }}>
+                    {card.icon}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: t.textPrimary, marginBottom: 5 }}>{card.label}</div>
+                    <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>{card.desc}</div>
+                  </div>
+                </div>
+                <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 5, color: card.color, fontSize: 12, fontWeight: 500 }}>
+                  <span>Open {card.label}</span>
+                  <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Platform Features ── */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <div style={{ width: 3, height: 18, borderRadius: 2, background: "linear-gradient(180deg, #6366f1, #8b5cf6)" }} />
+            <span style={{ fontSize: 15, fontWeight: 600, color: t.textPrimary }}>Key Features</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+            {features.map((f, i) => (
+              <div
+                key={i}
+                className="intro-feat-card"
+                style={{
+                  background: t.surface, border: `1px solid ${t.border}`,
+                  borderRadius: 14, padding: "22px 20px",
+                  boxShadow: t.shadow,
+                }}
+              >
+                <div style={{ fontSize: 28, marginBottom: 12 }}>{f.icon}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary, marginBottom: 8 }}>{f.title}</div>
+                <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.65 }}>{f.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Bottom Info Banner ── */}
+        <div
+          style={{
+            background: t.surfaceAlt, border: `1px solid ${t.accentBorder}`,
+            borderRadius: 14, padding: "20px 24px",
+            display: "flex", alignItems: "center", gap: 20,
+            boxShadow: `0 0 0 1px ${t.accentBorder}`,
+          }}
+        >
+          <div style={{
+            width: 46, height: 46, borderRadius: 12, flexShrink: 0,
+            background: t.accentDim, border: `1px solid ${t.accentBorder}`,
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22,
+          }}>💡</div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary, marginBottom: 4 }}>
+              Usage Tip
+            </div>
+            <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.6 }}>
+              Use the left sidebar to navigate between modules. You can collapse the sidebar using the ☰ button on the top left to get more workspace. Click on Research to generate a personalized learning roadmap with AI.
+            </div>
+          </div>
+          <div style={{ marginLeft: "auto", flexShrink: 0 }}>
+            <div style={{
+              background: t.accentDim, border: `1px solid ${t.accentBorder}`,
+              borderRadius: 8, padding: "6px 14px",
+              fontSize: 11, fontWeight: 600, color: t.accent,
+              fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em",
+              whiteSpace: "nowrap",
+            }}>
+              v1.0 · Beta
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </>
+  );
 }
 
 const TABS = [
@@ -36,7 +406,7 @@ const TABS = [
     label: "Problems",
     icon: (
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0120 9.414V19a2 2 0 01-2 2z"/>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0120 9.414V19a2 2 0 01-2 2z" />
       </svg>
     ),
     component: ProblemsTab,
@@ -46,7 +416,7 @@ const TABS = [
     label: "Submissions",
     icon: (
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
       </svg>
     ),
     component: SubmissionsTab,
@@ -109,7 +479,7 @@ const TABS = [
     allowedRoles: ["admin"],
     icon: (
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
     ),
     component: UsersTab,
@@ -119,7 +489,7 @@ const TABS = [
     label: "Contests",
     icon: (
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138z"/>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138z" />
       </svg>
     ),
     component: ContestsTab,
@@ -129,7 +499,7 @@ const TABS = [
     label: "Wiki",
     icon: (
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
       </svg>
     ),
     component: WikiTab,
@@ -140,7 +510,7 @@ const TABS = [
     allowedRoles: ["admin", "contributor"],
     icon: (
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
       </svg>
     ),
     component: ResearchTab,
@@ -176,7 +546,7 @@ export default function Home() {
       localStorage.removeItem("avatar_url");
     }
   };
-  
+
   useEffect(() => {
     if (location.state?.activeTab) {
       setActiveTab(location.state.activeTab);
@@ -187,9 +557,9 @@ export default function Home() {
     const token = localStorage.getItem("access_token");
     const storedUsername = localStorage.getItem("username");
     const storedRole = localStorage.getItem("user_role");
-    
+
     if (!token) { navigate("/login"); return; }
-    
+
     setUsername(storedUsername || "");
     if (storedRole) {
       setUserRole(storedRole);
@@ -233,7 +603,7 @@ export default function Home() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: ${isLight ? "#eaf2f0" : "#080C14"}; }
+        body { background: ${isLight ? "#eaf2f0" : "#080C14"}; overflow: hidden; }
         .home-shell { font-family: 'Sora', sans-serif; }
         .sidebar-nav-btn { transition: background 0.15s, color 0.15s, border-color 0.15s; }
         .sidebar-nav-btn:hover:not(.active) { background: ${isLight ? "rgba(15,23,42,0.06)" : "rgba(255,255,255,0.05)"} !important; color: ${isLight ? "#0f172a" : "#CBD5E1"} !important; }
@@ -253,7 +623,7 @@ export default function Home() {
         className="home-shell"
         style={{
           display: "flex",
-          minHeight: "100vh",
+          height: "100vh", // SỬA: Thay minHeight thành height cố định 100vh để chống giãn layout
           width: "100vw",
           background: c("#080C14", "#eaf2f0"),
           color: c("#CBD5E1", "#0f172a"),
@@ -264,6 +634,7 @@ export default function Home() {
           style={{
             width: sidebarOpen ? 232 : 64,
             minWidth: sidebarOpen ? 232 : 64,
+            height: "100vh", // SỬA: Cố định chiều cao Aside bằng viewport
             background: c("#0D1117", "#f8fffc"),
             borderRight: c("1px solid rgba(255,255,255,0.06)", "1px solid rgba(15,23,42,0.12)"),
             display: "flex",
@@ -281,6 +652,7 @@ export default function Home() {
               alignItems: "center",
               gap: 10,
               justifyContent: sidebarOpen ? "flex-start" : "center",
+              flexShrink: 0, // SỬA: Chống co rút header của sidebar
             }}
           >
             <div
@@ -313,7 +685,16 @@ export default function Home() {
             )}
           </div>
 
-          <nav style={{ flex: 1, padding: "12px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
+          <nav
+            style={{
+              flex: 1,
+              padding: "12px 10px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 2,
+              overflowY: "auto", // SỬA: Thêm cuộn nội tại nếu có quá nhiều tab, không phá vỡ layout footer
+            }}
+          >
             {filteredTabs.map((tab) => {
               const isActive = activeTab === tab.key;
               return (
@@ -339,6 +720,7 @@ export default function Home() {
                     cursor: "pointer",
                     width: "100%",
                     textAlign: "left",
+                    flexShrink: 0, // SỬA: Đảm bảo các tab không bị co bóp méo mó
                   }}
                 >
                   <span style={{ flexShrink: 0 }}>{tab.icon}</span>
@@ -364,6 +746,7 @@ export default function Home() {
             })}
           </nav>
 
+          {/* SỬA: Cố định phần thông tin user này luôn ở đáy Aside mà không sợ nội dung trang chính đẩy xuống */}
           <div
             style={{
               borderTop: c("1px solid rgba(255,255,255,0.06)", "1px solid rgba(15,23,42,0.12)"),
@@ -372,6 +755,9 @@ export default function Home() {
               alignItems: "center",
               gap: 10,
               justifyContent: sidebarOpen ? "flex-start" : "center",
+              flexShrink: 0,
+              marginTop: "auto",
+              background: c("#0D1117", "#f8fffc"),
             }}
           >
             <div
@@ -391,7 +777,7 @@ export default function Home() {
                 overflow: "hidden"
               }}
             >
-              {avatarUrl ? <img src={getAvatarUrl(avatarUrl)} alt="Avatar" style={{width: '100%', height: '100%', objectFit: 'cover'}}/> : initials}
+              {avatarUrl ? <img src={getAvatarUrl(avatarUrl)} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials}
             </div>
             {sidebarOpen && (
               <div style={{ flex: 1, overflow: "hidden" }}>
@@ -434,7 +820,7 @@ export default function Home() {
                 title="Toggle sidebar"
               >
                 <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </button>
 
@@ -512,7 +898,7 @@ export default function Home() {
                     overflow: "hidden"
                   }}
                 >
-                  {avatarUrl ? <img src={getAvatarUrl(avatarUrl)} alt="Avatar" style={{width: '100%', height: '100%', objectFit: 'cover'}}/> : initials}
+                  {avatarUrl ? <img src={getAvatarUrl(avatarUrl)} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials}
                 </div>
                 @{username || "user"}
               </div>
@@ -535,7 +921,7 @@ export default function Home() {
                 }}
               >
                 <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
                 Log Out
               </button>
@@ -594,7 +980,13 @@ export default function Home() {
               className="tab-content"
               style={{ position: "relative", zIndex: 3, padding: "32px 32px 48px" }}
             >
-              <ActiveTabComponent isLight={isLight} onProfileUpdate={handleProfileUpdate} />
+              <ActiveTabComponent
+                isLight={isLight}
+                onProfileUpdate={handleProfileUpdate}
+                onNavigate={setActiveTab}
+                username={username}
+                userRole={userRole}
+              />
             </div>
           </main>
         </div>

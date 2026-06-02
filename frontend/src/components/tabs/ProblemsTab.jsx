@@ -22,7 +22,7 @@ export default function ProblemsTab({ isLight = false }) {
     tutorial_markdown: "",
     solution_markdown: "",
     coding_markdown: "",
-    checker_markdown: "", 
+    checker_markdown: "",
   });
   const [inputZipFile, setInputZipFile] = useState(null);
   const [outputZipFile, setOutputZipFile] = useState(null);
@@ -53,7 +53,7 @@ export default function ProblemsTab({ isLight = false }) {
       tutorial_markdown: "",
       solution_markdown: "",
       coding_markdown: "",
-      checker_markdown: "", 
+      checker_markdown: "",
     });
     setInputZipFile(null);
     setOutputZipFile(null);
@@ -169,7 +169,7 @@ export default function ProblemsTab({ isLight = false }) {
         formPayload.append("coding_markdown", formData.coding_markdown || "");
         formPayload.append("checker_markdown", formData.checker_markdown || "");
         formPayload.append("author_id", Number(userId));
-        
+
         if (inputZipFile) {
           formPayload.append("input_zip", inputZipFile);
         }
@@ -240,126 +240,241 @@ export default function ProblemsTab({ isLight = false }) {
     }
   };
 
+  const t = isLight ? {
+    pageBg: "#f1f5f9",
+    surface: "#ffffff",
+    surfaceRaised: "#f8fafc",
+    border: "#e2e8f0",
+    borderStrong: "#cbd5e1",
+    accent: "#059669",
+    accentDark: "#047857",
+    accentBg: "#ecfdf5",
+    accentBorder: "#6ee7b7",
+    tableHead: "#065f46",
+    tableHeadBg: "#059669",
+    textPrimary: "#0f172a",
+    textSecondary: "#475569",
+    textMuted: "#94a3b8",
+    inputBg: "#ffffff",
+    inputBorder: "#cbd5e1",
+    shadow: "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)",
+  } : {
+    pageBg: "transparent",
+    surface: "#0f172a",
+    surfaceRaised: "#111827",
+    border: "rgba(255,255,255,0.07)",
+    borderStrong: "rgba(255,255,255,0.12)",
+    accent: "#06b6d4",
+    accentDark: "#0891b2",
+    accentBg: "rgba(6,182,212,0.08)",
+    accentBorder: "rgba(6,182,212,0.3)",
+    tableHead: "#e2e8f0",
+    tableHeadBg: "rgba(255,255,255,0.03)",
+    textPrimary: "#f1f5f9",
+    textSecondary: "#64748b",
+    textMuted: "#475569",
+    inputBg: "#0c1524",
+    inputBorder: "rgba(255,255,255,0.08)",
+    shadow: "none",
+  };
+
+  const inputStyle = {
+    width: "100%", boxSizing: "border-box",
+    background: t.inputBg,
+    border: `1px solid ${t.inputBorder}`,
+    borderRadius: 7, padding: "9px 12px",
+    fontSize: 13, color: t.textPrimary,
+    outline: "none", transition: "border-color 0.15s, box-shadow 0.15s",
+    fontFamily: "inherit",
+  };
+
+  const labelStyle = {
+    display: "block", fontSize: 11, fontWeight: 600,
+    color: t.textSecondary, letterSpacing: "0.06em",
+    textTransform: "uppercase", marginBottom: 6,
+  };
+
   const renderStatusIndicator = (problem) => {
     const score = problem.best_score;
     const status = problem.best_status;
 
     if (score === null || score === undefined) {
       return (
-        <div 
-          className={`h-2 w-2 rounded-full border ${
-            isLight ? "border-slate-300 bg-slate-100" : "border-slate-700 bg-slate-900"
-          }`} 
-          title="Not attempted"
-        />
+        <span style={{
+          width: 6, height: 6, borderRadius: "50%",
+          background: isLight ? "#cbd5e1" : "#475569",
+          display: "inline-block"
+        }} title="Not attempted" />
       );
     }
-    
+
     if (score === 100 || status === "accepted") {
       return (
-        <div 
-          className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" 
-          title="Solved (100 pts)"
-        />
+        <span style={{
+          width: 6, height: 6, borderRadius: "50%",
+          background: "#10b981", display: "inline-block",
+          boxShadow: "0 0 8px rgba(16,185,129,0.5)"
+        }} title="Solved (100 pts)" />
       );
     }
 
     if (score > 0 && score < 100) {
       return (
-        <div 
-          className="h-2 w-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" 
-          title={`Partial Solved (${score} pts)`}
-        />
+        <span style={{
+          width: 6, height: 6, borderRadius: "50%",
+          background: "#f59e0b", display: "inline-block",
+          boxShadow: "0 0 8px rgba(245,158,11,0.5)"
+        }} title={`Partial Solved (${score} pts)`} />
       );
     }
 
     return (
-      <div 
-        className="h-2 w-2 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]" 
-        title="Attempted / Failed"
-      />
+      <span style={{
+        width: 6, height: 6, borderRadius: "50%",
+        background: "#ef4444", display: "inline-block",
+        boxShadow: "0 0 8px rgba(239,68,68,0.5)"
+      }} title="Attempted / Failed" />
     );
   };
 
   return (
-    <section className="space-y-6">
-      {/* HEADER BAR */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
-          <h2 className={`text-2xl font-bold tracking-wide ${isLight ? "text-slate-800" : "text-white"}`}>PROBLEMS</h2>
-          <select
-            value={filterMode}
-            onChange={(e) => setFilterMode(e.target.value)}
-            className={`rounded-lg border px-3 py-1.5 text-xs outline-none transition font-semibold shadow-sm ${
-              isLight 
-                ? "border-slate-200 bg-white text-slate-700 hover:border-slate-300" 
-                : "border-white/5 bg-slate-900 text-slate-300 focus:border-cyan-500 hover:border-white/10"
-            }`}
-          >
-            <option value="public">Public</option>
-            <option value="private">My Problems</option> 
-            <option value="all">All</option>
-          </select>
+    <div style={{ fontFamily: "'Inter var', 'Inter', sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap');
+        .tk-input:focus, .tk-select:focus {
+          border-color: ${t.accent} !important;
+          box-shadow: 0 0 0 3px ${t.accentBg} !important;
+        }
+        .tk-primary:hover { background: ${t.accentDark} !important; }
+        .tk-ghost:hover { background: ${isLight ? "#f1f5f9" : "rgba(255,255,255,0.05)"} !important; }
+      `}</style>
+
+      {/* ── Page Header ── */}
+      <div style={{
+        display: "flex", alignItems: "flex-start",
+        justifyContent: "space-between", marginBottom: 24, gap: 16, flexWrap: "wrap",
+      }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 5 }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: 8,
+              background: isLight ? "#059669" : "rgba(6,182,212,0.12)",
+              border: isLight ? "none" : "1px solid rgba(6,182,212,0.2)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isLight ? "#fff" : "#22d3ee"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <line x1="9" y1="9" x2="15" y2="9" />
+                <line x1="9" y1="13" x2="15" y2="13" />
+                <line x1="9" y1="17" x2="11" y2="17" />
+              </svg>
+            </div>
+            <h2 style={{
+              margin: 0, fontSize: 18, fontWeight: 700,
+              color: t.textPrimary, letterSpacing: "-0.02em",
+            }}>
+              Coding Problems
+            </h2>
+            <select
+              value={filterMode}
+              onChange={(e) => setFilterMode(e.target.value)}
+              className="tk-select"
+              style={{
+                borderRadius: 8, border: `1px solid ${t.border}`,
+                padding: "4px 10px", fontSize: 11, fontWeight: 700,
+                background: t.inputBg, color: t.textPrimary,
+                cursor: "pointer", outline: "none", marginLeft: 8
+              }}
+            >
+              <option value="public">Public</option>
+              <option value="private">My Problems</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+          <p style={{ margin: 0, fontSize: 12, color: t.textSecondary, lineHeight: 1.5, paddingLeft: 40 }}>
+            Browse through active programming challenges, test datasets, and machine learning models.
+          </p>
         </div>
 
         {(role === "admin" || role === "contributor") && (
           <button
             type="button"
             onClick={() => { resetForm(); setIsModalOpen(true); }}
-            className={`rounded-lg px-4 py-2.5 text-xs font-bold tracking-wider text-white transition-all duration-200 active:scale-[0.98] ${
-              isLight
-                ? "bg-emerald-600 hover:bg-emerald-500 shadow-md shadow-emerald-600/10 hover:shadow-emerald-600/20"
-                : "bg-cyan-600 hover:bg-cyan-500 shadow-md shadow-cyan-600/10 hover:shadow-cyan-600/20"
-            }`}
+            className="tk-primary"
+            style={{
+              display: "flex", alignItems: "center", gap: 7,
+              background: t.accent, color: "#fff", border: "none",
+              borderRadius: 7, padding: "8px 16px",
+              fontSize: 12, fontWeight: 600, letterSpacing: "0.02em",
+              cursor: "pointer", transition: "all 0.15s",
+              boxShadow: isLight ? "0 1px 3px rgba(5,150,105,0.3)" : "none",
+            }}
           >
-            CREATE PROBLEM
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+              <path d="M5.5 1v9M1 5.5h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            Create Problem
           </button>
         )}
       </div>
 
       {error && !isModalOpen && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3.5 text-xs text-red-400">
+        <div style={{
+          marginBottom: 20, padding: "10px 14px", borderRadius: 8,
+          background: isLight ? "#fff1f2" : "rgba(239,68,68,0.08)",
+          border: `1px solid ${isLight ? "#fecdd3" : "rgba(239,68,68,0.2)"}`,
+          color: isLight ? "#be123c" : "#f87171", fontSize: 12,
+        }}>
           {error}
         </div>
       )}
 
-      {/* PROBLEMS TABLE */}
       {isLoading ? (
-        <p className={`text-xs ${isLight ? "text-slate-500" : "text-slate-400"} animate-pulse`}>Loading problems workspace...</p>
+        <div style={{
+          background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
+        }}>
+          <p className="animate-pulse">Loading problems workspace...</p>
+        </div>
       ) : problems.length === 0 ? (
-        <p className={`text-xs ${isLight ? "text-slate-500" : "text-slate-400"}`}>No created problems yet.</p>
+        <div style={{
+          background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
+          boxShadow: t.shadow,
+        }}>
+          <div style={{ marginBottom: 8, opacity: 0.35, fontSize: 28 }}>📭</div>
+          No created problems yet.
+        </div>
       ) : (
-        <div className={`overflow-x-auto rounded-xl border ${
-          isLight ? "border-slate-200/80 bg-white shadow-sm" : "border-white/5 bg-slate-950/40"
-        }`}>
-          <table className="w-full text-left border-collapse min-w-[950px]">
+        <div style={{
+          background: t.surface,
+          border: `1px solid ${t.border}`,
+          borderRadius: 12, overflow: "hidden",
+          boxShadow: t.shadow,
+        }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 950 }}>
             <thead>
-              <tr className={`text-xs font-bold uppercase tracking-wider border-b ${
-                isLight 
-                  ? "bg-emerald-600 text-white border-emerald-700/50" 
-                  : "bg-emerald-950/60 text-emerald-200 border-emerald-500/20"
-              }`}>
-                <th className="w-12 py-4 text-center">✔</th>
-                <th className="px-4 py-4 w-44">ID</th>
-                <th className="px-4 py-4">Problem</th>
-                <th className="px-4 py-4 w-40">Category</th>
-                <th className="px-4 py-4 w-24 text-center">Points</th>
-                <th className="px-4 py-4 w-28 text-center">Visibility</th>
-                <th className="px-4 py-4 w-36 text-center">Request</th>
-                <th className="px-4 py-4 w-36 text-center">Actions</th>
-                <th className="px-4 py-4 w-32 text-center">Status</th>
+              <tr style={{
+                background: isLight ? t.tableHeadBg : t.tableHeadBg,
+                borderBottom: `1px solid ${isLight ? t.accentDark + "55" : t.border}`,
+              }}>
+                {["✔", "ID", "Problem Name", "Category", "Points", "Visibility", "Request", "Actions", "Status"].map((h, i) => (
+                  <th key={i} style={{
+                    padding: "12px 14px",
+                    textAlign: i === 0 || i === 4 || i === 5 || i === 6 || i === 7 || i === 8 ? "center" : "left",
+                    fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: isLight ? "#fff" : t.textSecondary,
+                    fontFamily: "'DM Mono', monospace",
+                  }}>
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
-
-            <tbody className={`divide-y ${isLight ? "divide-slate-100" : "divide-white/5"}`}>
+            <tbody>
               {problems.map((problem, index) => {
                 const isPrivate = problem.is_public === 0;
                 const reqStatus = problem.request_status ? problem.request_status.toUpperCase() : "NONE";
                 const bestStatus = problem.best_status ? problem.best_status.toLowerCase() : null;
-
-                const rowBg = index % 2 === 0 
-                  ? "bg-transparent" 
-                  : (isLight ? "bg-slate-50/30" : "bg-slate-900/10");
 
                 const cleanSlug = problem.name
                   .toLowerCase()
@@ -372,68 +487,97 @@ export default function ProblemsTab({ isLight = false }) {
                   <tr
                     key={problem.id}
                     onClick={() => navigate(`/livecoding/${problem.id}`, { state: { problem } })}
-                    className={`group cursor-pointer text-sm transition-colors duration-150 ${rowBg} ${
-                      isLight ? "hover:bg-slate-50" : "hover:bg-slate-900/30"
-                    }`}
+                    style={{
+                      borderBottom: `1px solid ${isLight ? "#e2e8f0" : "rgba(255,255,255,0.04)"}`,
+                      cursor: "pointer",
+                      background: index % 2 === 0
+                        ? "transparent"
+                        : (isLight ? "#f8fafc" : "rgba(255,255,255,0.01)"),
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = isLight ? "#f0fdf8" : "rgba(6,182,212,0.04)"}
+                    onMouseLeave={e => e.currentTarget.style.background = index % 2 === 0 ? "transparent" : (isLight ? "#f8fafc" : "rgba(255,255,255,0.01)")}
                   >
-                    {/* Status Indicator */}
-                    <td className="py-4 text-center">
-                      <div className="flex items-center justify-center">
-                        {renderStatusIndicator(problem)}
-                      </div>
+                    {/* Status Dot */}
+                    <td style={{ padding: "14px 10px", textAlign: "center", width: 40 }}>
+                      {renderStatusIndicator(problem)}
                     </td>
 
                     {/* ID */}
-                    <td className={`px-4 py-4 text-xs font-mono font-medium truncate max-w-[170px] ${
-                      isLight ? "text-slate-500 group-hover:text-blue-600" : "text-slate-400 group-hover:text-cyan-400"
-                    }`}>
-                      {displayId}
+                    <td style={{ padding: "14px 14px", width: 140 }}>
+                      <span style={{
+                        fontFamily: "'DM Mono', monospace", fontSize: 11,
+                        color: isLight ? "#059669" : "#475569",
+                        letterSpacing: "0.02em", fontWeight: 600,
+                      }}>
+                        {displayId}
+                      </span>
                     </td>
 
                     {/* Name */}
-                    <td className="px-4 py-4 font-semibold">
-                      <span className={`tracking-wide transition-colors group-hover:underline ${isLight ? "text-slate-700" : "text-slate-100"}`}>
+                    <td style={{ padding: "14px 14px" }}>
+                      <span style={{
+                        fontSize: 13, fontWeight: 600,
+                        color: isLight ? "#0f172a" : "#e2e8f0",
+                        display: "block", lineHeight: 1.4,
+                      }}>
                         {problem.name}
                       </span>
                     </td>
 
                     {/* Category */}
-                    <td className={`px-4 py-4 text-xs font-medium ${isLight ? "text-slate-500" : "text-slate-400"}`}>
-                      Machine Learning
+                    <td style={{ padding: "14px 14px", width: 150 }}>
+                      <span style={{ fontSize: 12, color: t.textSecondary }}>
+                        Machine Learning
+                      </span>
                     </td>
 
                     {/* Points */}
-                    <td className={`px-4 py-4 text-xs font-mono font-semibold text-center ${isLight ? "text-slate-600" : "text-slate-300"}`}>
-                      {problem.best_score !== null ? Number(problem.best_score).toFixed(2) : "0.00"}
+                    <td style={{ padding: "14px 14px", width: 80, textAlign: "center" }}>
+                      <span style={{ fontSize: 11, color: t.textSecondary, fontFamily: "'DM Mono', monospace" }}>
+                        {problem.best_score !== null ? Number(problem.best_score).toFixed(2) : "0.00"}
+                      </span>
                     </td>
 
                     {/* Visibility */}
-                    <td className="px-4 py-4 text-center">
-                      <span className={`text-[10px] font-semibold px-2 py-1 rounded-md ${
-                        isPrivate 
-                          ? (isLight ? "bg-amber-50 text-amber-600 border border-amber-200/60" : "bg-amber-500/10 text-amber-500 border border-amber-500/10") 
-                          : (isLight ? "bg-emerald-50 text-emerald-600 border border-emerald-200/60" : "bg-emerald-500/10 text-emerald-500 border border-emerald-500/10")
-                      }`}>
+                    <td style={{ padding: "14px 10px", width: 100, textAlign: "center" }}>
+                      <span style={{
+                        display: "inline-flex", padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                        background: isPrivate ? (isLight ? "#fffbeb" : "rgba(245,158,11,0.08)") : (isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)"),
+                        color: isPrivate ? (isLight ? "#d97706" : "#fbbf24") : (isLight ? "#065f46" : "#34d399"),
+                        border: `1px solid ${isPrivate ? (isLight ? "#fde68a" : "rgba(245,158,11,0.2)") : (isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)")}`,
+                      }}>
                         {isPrivate ? "Private" : "Public"}
                       </span>
                     </td>
 
-                    {/* Request status / Request Actions */}
-                    <td className="px-4 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                    {/* Request Status */}
+                    <td style={{ padding: "14px 10px", width: 150, textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
                       {isPrivate ? (
                         role === "admin" ? (
-                          <div className="flex justify-center gap-1.5">
+                          <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
                             <button
                               type="button"
                               onClick={(e) => handleAdminApproveDirectly(e, problem.id, "approve")}
-                              className="rounded-md bg-emerald-600 hover:bg-emerald-500 px-2 py-1 text-[10px] font-bold text-white transition shadow-sm"
+                              style={{
+                                background: isLight ? "#059669" : "transparent",
+                                border: isLight ? "none" : "1px solid rgba(16,185,129,0.3)",
+                                color: isLight ? "#fff" : "#34d399",
+                                padding: "4px 8px", borderRadius: 4,
+                                fontSize: 10, fontWeight: 700, cursor: "pointer",
+                              }}
                             >
                               Approve
                             </button>
                             <button
                               type="button"
                               onClick={(e) => handleAdminApproveDirectly(e, problem.id, "reject")}
-                              className="rounded-md bg-rose-600 hover:bg-rose-500 px-2 py-1 text-[10px] font-bold text-white transition shadow-sm"
+                              style={{
+                                background: isLight ? "#e11d48" : "transparent",
+                                border: isLight ? "none" : "1px solid rgba(244,63,94,0.3)",
+                                color: isLight ? "#fff" : "#fb7185",
+                                padding: "4px 8px", borderRadius: 4,
+                                fontSize: 10, fontWeight: 700, cursor: "pointer",
+                              }}
                             >
                               Reject
                             </button>
@@ -441,89 +585,111 @@ export default function ProblemsTab({ isLight = false }) {
                         ) : (
                           problem.author_id === currentUserId ? (
                             reqStatus === "PENDING" ? (
-                              <span className="text-[10px] font-medium text-slate-400">Pending Review</span>
+                              <span style={{ fontSize: 11, color: t.textMuted }}>Pending Review</span>
                             ) : (
                               <button
                                 type="button"
                                 onClick={(e) => handleRequestPublic(e, problem.id)}
-                                className="rounded-md bg-amber-500 hover:bg-amber-400 text-slate-955 px-2.5 py-1 text-[10px] font-bold transition shadow-sm"
+                                style={{
+                                  background: isLight ? "#d97706" : "transparent",
+                                  border: isLight ? "none" : "1px solid rgba(245,158,11,0.3)",
+                                  color: isLight ? "#fff" : "#fbbf24",
+                                  padding: "4px 8px", borderRadius: 4,
+                                  fontSize: 10, fontWeight: 700, cursor: "pointer",
+                                }}
                               >
                                 Request Public
                               </button>
                             )
                           ) : (
-                            <span className="text-[10px] text-slate-400 font-medium">-</span>
+                            <span style={{ fontSize: 11, color: t.textMuted }}>-</span>
                           )
                         )
                       ) : (
-                        <span className={`text-[10px] font-bold ${isLight ? "text-emerald-600" : "text-emerald-400"}`}>Published</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: t.accent, textTransform: "uppercase" }}>Published</span>
                       )}
                     </td>
 
                     {/* Sửa và Xóa */}
-                    <td className="px-4 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                    <td style={{ padding: "14px 10px", width: 140, textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
                       {role === "admin" || (role === "contributor" && problem.author_id === currentUserId && reqStatus !== "APPROVED") ? (
-                        <div className="flex justify-center gap-1.5">
+                        <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
                           <button
                             type="button"
                             onClick={(e) => handleEditProblemInit(e, problem)}
-                            className="rounded-md bg-indigo-600 hover:bg-indigo-500 px-2.5 py-1 text-[10px] font-bold text-white transition shadow-sm"
+                            style={{
+                              background: isLight ? "#4f46e5" : "transparent",
+                              border: isLight ? "none" : "1px solid rgba(99,102,241,0.3)",
+                              color: isLight ? "#fff" : "#a5b4fc",
+                              padding: "4px 8px", borderRadius: 4,
+                              fontSize: 10, fontWeight: 700, cursor: "pointer",
+                            }}
                           >
                             Edit
                           </button>
                           <button
                             type="button"
                             onClick={(e) => handleDeleteProblemDirect(e, problem.id)}
-                            className="rounded-md bg-rose-600 hover:bg-rose-500 px-2.5 py-1 text-[10px] font-bold text-white transition shadow-sm"
+                            style={{
+                              background: isLight ? "#e11d48" : "transparent",
+                              border: isLight ? "none" : "1px solid rgba(244,63,94,0.3)",
+                              color: isLight ? "#fff" : "#fb7185",
+                              padding: "4px 8px", borderRadius: 4,
+                              fontSize: 10, fontWeight: 700, cursor: "pointer",
+                            }}
                           >
                             Delete
                           </button>
                         </div>
                       ) : (
-                        <span className="text-[10px] text-slate-400 font-medium">-</span>
+                        <span style={{ fontSize: 11, color: t.textMuted }}>-</span>
                       )}
                     </td>
 
-                    {/* Submission Status badge */}
-                    <td className="px-4 py-4 text-center">
+                    {/* Status Badge */}
+                    <td style={{ padding: "14px 14px", width: 130, textAlign: "center" }}>
                       {!bestStatus ? (
-                        <span className={`text-[10px] font-semibold px-2 py-1 rounded-md ${
-                          isLight 
-                            ? "bg-slate-100 text-slate-500 border border-slate-200" 
-                            : "bg-slate-500/10 text-slate-400 border border-slate-500/10"
-                        }`}>
+                        <span style={{
+                          display: "inline-flex", padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                          background: isLight ? "#f1f5f9" : "rgba(255,255,255,0.04)",
+                          color: t.textMuted, border: `1px solid ${t.border}`,
+                        }}>
                           Unattempted
                         </span>
                       ) : bestStatus === "accepted" ? (
-                        <span className={`text-[10px] font-semibold px-2 py-1 rounded-md ${
-                          isLight 
-                            ? "bg-emerald-50 text-emerald-600 border border-emerald-200" 
-                            : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/10"
-                        }`}>
+                        <span style={{
+                          display: "inline-flex", padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                          background: isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)",
+                          color: isLight ? "#065f46" : "#34d399",
+                          border: `1px solid ${isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)"}`,
+                        }}>
                           Accepted
                         </span>
                       ) : bestStatus === "wrong_answer" || bestStatus === "wrong answer" ? (
-                        <span className={`text-[10px] font-semibold px-2 py-1 rounded-md ${
-                          isLight 
-                            ? "bg-rose-50 text-rose-600 border border-rose-200" 
-                            : "bg-rose-500/10 text-rose-400 border border-rose-500/10"
-                        }`}>
+                        <span style={{
+                          display: "inline-flex", padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                          background: isLight ? "#fff1f2" : "rgba(244,63,94,0.08)",
+                          color: isLight ? "#9f1239" : "#fb7185",
+                          border: `1px solid ${isLight ? "#fecdd3" : "rgba(244,63,94,0.2)"}`,
+                        }}>
                           Wrong Answer
                         </span>
                       ) : bestStatus === "runtime_error" || bestStatus === "runtime error" ? (
-                        <span className={`text-[10px] font-semibold px-2 py-1 rounded-md ${
-                          isLight 
-                            ? "bg-amber-50 text-amber-600 border border-amber-200" 
-                            : "bg-amber-500/10 text-amber-400 border border-amber-500/10"
-                        }`}>
+                        <span style={{
+                          display: "inline-flex", padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                          background: isLight ? "#fffbeb" : "rgba(245,158,11,0.08)",
+                          color: isLight ? "#d97706" : "#fbbf24",
+                          border: `1px solid ${isLight ? "#fde68a" : "rgba(245,158,11,0.2)"}`,
+                        }}>
                           Runtime Error
                         </span>
                       ) : (
-                        <span className={`text-[10px] font-semibold px-2 py-1 rounded-md ${
-                          isLight 
-                            ? "bg-cyan-50 text-cyan-600 border border-cyan-200" 
-                            : "bg-cyan-500/10 text-cyan-400 border border-cyan-500/10"
-                        }`}>
+                        <span style={{
+                          display: "inline-flex", padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                          background: isLight ? "#f0f9ff" : "rgba(6,182,212,0.08)",
+                          color: isLight ? "#0369a1" : "#22d3ee",
+                          border: `1px solid ${isLight ? "#bae6fd" : "rgba(6,182,212,0.2)"}`,
+                        }}>
                           TLE
                         </span>
                       )}
@@ -538,180 +704,214 @@ export default function ProblemsTab({ isLight = false }) {
 
       {/* DIALOG PORTAL */}
       {isModalOpen && createPortal(
-        <div className="fixed inset-0 z-[1200] flex items-start justify-center overflow-y-auto bg-black/65 px-4 py-10">
-          <div className="my-auto w-full max-w-3xl rounded-2xl border border-white/10 bg-slate-950/95 p-6 shadow-[0_0_50px_rgba(0,0,0,0.7)]">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-xl font-bold tracking-wide text-white">
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1200, display: "flex",
+          alignItems: "flex-start", justifyContent: "center", overflowY: "auto",
+          background: "rgba(0,0,0,0.65)", padding: "40px 16px"
+        }}>
+          <div style={{
+            margin: "auto", width: "100%", maxWidth: 768,
+            background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 14, padding: 24,
+            boxShadow: isLight ? "0 10px 25px rgba(0,0,0,0.15)" : "0 10px 25px rgba(0,0,0,0.5)",
+            position: "relative", overflow: "hidden",
+          }}>
+            {/* Top stripe */}
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "linear-gradient(90deg, #10b981, #06b6d4, #818cf8)",
+            }} />
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <h3 style={{
+                margin: 0, fontSize: 14, fontWeight: 700,
+                color: isLight ? "#059669" : "#22d3ee",
+                textTransform: "uppercase", letterSpacing: "0.1em",
+              }}>
                 {editingProblemId ? "Edit Problem" : "Create Problem"}
               </h3>
               <button
                 type="button"
                 onClick={closeModal}
-                className="rounded-md border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:border-slate-500"
+                className="tk-ghost"
+                style={{
+                  background: "transparent", border: `1px solid ${t.border}`,
+                  color: t.textSecondary, borderRadius: 5, padding: "4px 10px",
+                  fontSize: 11, fontWeight: 600, cursor: "pointer",
+                }}
               >
-                CLOSE
+                Close
               </button>
             </div>
 
             {error && (
-              <div className="mb-4 rounded-lg border border-red-500/30 bg-red-950/40 p-3 text-sm text-red-300">
+              <div style={{
+                marginBottom: 16, padding: "10px 14px", borderRadius: 8,
+                background: isLight ? "#fff1f2" : "rgba(239,68,68,0.08)",
+                border: `1px solid ${isLight ? "#fecdd3" : "rgba(239,68,68,0.2)"}`,
+                color: isLight ? "#be123c" : "#f87171", fontSize: 12,
+              }}>
                 {error}
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="grid gap-4 md:grid-cols-2">
+            <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    Name *
-                  </label>
+                  <label style={labelStyle}>Name *</label>
                   <input
                     name="name"
                     required
                     value={formData.name}
                     onChange={handleChange}
-                    className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-100 focus:border-cyan-500 focus:outline-none"
+                    className="tk-input"
+                    style={inputStyle}
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    Source
-                  </label>
+                  <label style={labelStyle}>Source</label>
                   <input
                     name="source"
                     value={formData.source}
                     onChange={handleChange}
-                    className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-100 focus:border-cyan-500 focus:outline-none"
+                    className="tk-input"
+                    style={inputStyle}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Statement Markdown *
-                </label>
+                <label style={labelStyle}>Statement Markdown *</label>
                 <textarea
                   name="statement_markdown"
                   required
-                  rows={5}
+                  rows={4}
                   value={formData.statement_markdown}
                   onChange={handleChange}
-                  className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-100 focus:border-cyan-500 focus:outline-none"
+                  className="tk-input"
+                  style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
                 />
               </div>
 
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Theory Markdown
-                </label>
-                <textarea
-                  name="theory_markdown"
-                  rows={4}
-                  value={formData.theory_markdown}
-                  onChange={handleChange}
-                  className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-100 focus:border-cyan-500 focus:outline-none"
-                />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Theory Markdown</label>
+                  <textarea
+                    name="theory_markdown"
+                    rows={3}
+                    value={formData.theory_markdown}
+                    onChange={handleChange}
+                    className="tk-input"
+                    style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Tutorial Markdown</label>
+                  <textarea
+                    name="tutorial_markdown"
+                    rows={3}
+                    value={formData.tutorial_markdown}
+                    onChange={handleChange}
+                    className="tk-input"
+                    style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Solution Markdown</label>
+                  <textarea
+                    name="solution_markdown"
+                    rows={3}
+                    value={formData.solution_markdown}
+                    onChange={handleChange}
+                    className="tk-input"
+                    style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Coding Markdown</label>
+                  <textarea
+                    name="coding_markdown"
+                    rows={3}
+                    value={formData.coding_markdown}
+                    onChange={handleChange}
+                    className="tk-input"
+                    style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+                  />
+                </div>
               </div>
 
               <div>
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Tutorial Markdown
-                </label>
-                <textarea
-                  name="tutorial_markdown"
-                  rows={4}
-                  value={formData.tutorial_markdown}
-                  onChange={handleChange}
-                  className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-100 focus:border-cyan-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Solution Markdown
-                </label>
-                <textarea
-                  name="solution_markdown"
-                  rows={4}
-                  value={formData.solution_markdown}
-                  onChange={handleChange}
-                  className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-100 focus:border-cyan-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Coding Markdown
-                </label>
-                <textarea
-                  name="coding_markdown"
-                  rows={4}
-                  value={formData.coding_markdown}
-                  onChange={handleChange}
-                  className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-100 focus:border-cyan-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Checker Markdown
-                </label>
+                <label style={labelStyle}>Checker Markdown</label>
                 <textarea
                   name="checker_markdown"
-                  rows={4}
+                  rows={3}
                   value={formData.checker_markdown}
                   onChange={handleChange}
-                  className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-100 focus:border-cyan-500 focus:outline-none"
+                  className="tk-input"
+                  style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
                 />
               </div>
 
               {!editingProblemId && (
-                <div className="grid gap-4 md:grid-cols-2">
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <div>
-                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                      Input Zip File (.zip)
-                    </label>
+                    <label style={labelStyle}>Input Zip File (.zip)</label>
                     <input
                       type="file"
                       accept=".zip"
                       onChange={(e) => setInputZipFile(e.target.files[0])}
-                      className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-100"
+                      style={{ fontSize: 12, color: t.textSecondary }}
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                      Output Zip File (.zip)
-                    </label>
+                    <label style={labelStyle}>Output Zip File (.zip)</label>
                     <input
                       type="file"
                       accept=".zip"
                       onChange={(e) => setOutputZipFile(e.target.files[0])}
-                      className="mt-1.5 w-full rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2.5 text-sm text-slate-100"
+                      style={{ fontSize: 12, color: t.textSecondary }}
                     />
                   </div>
                 </div>
               )}
 
-              <div className="flex justify-end gap-3 pt-2">
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 10 }}>
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="rounded-lg border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-300"
+                  className="tk-ghost"
+                  style={{
+                    background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary,
+                    borderRadius: 7, padding: "8px 16px", fontSize: 12, fontWeight: 500,
+                    cursor: "pointer", transition: "background 0.15s",
+                  }}
                 >
-                  CANCEL
+                  Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="rounded-lg bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-600 px-4 py-2 text-xs font-semibold tracking-wide text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  className="tk-primary"
+                  style={{
+                    background: t.accent, border: "none", color: "#fff",
+                    borderRadius: 7, padding: "8px 20px",
+                    fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    transition: "background 0.15s",
+                    boxShadow: isLight ? "0 1px 3px rgba(5,150,105,0.35)" : "none",
+                    opacity: isSubmitting ? 0.6 : 1,
+                  }}
                 >
-                  {isSubmitting ? "PROCESSING..." : editingProblemId ? "SAVE CHANGES" : "CREATE"}
+                  {isSubmitting ? "Processing..." : editingProblemId ? "Save Changes" : "Create"}
                 </button>
               </div>
             </form>
           </div>
         </div>
-      , document.body)}
-    </section>
+        , document.body)}
+    </div>
   );
 }
