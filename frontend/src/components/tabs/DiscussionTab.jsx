@@ -1,6 +1,23 @@
 // src/components/tabs/DiscussionTab.jsx
 import React, { useState, useEffect } from "react";
 
+function Avatar({ name = "?" }) {
+  const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+  const palette = ["#0891b2","#059669","#7c3aed","#db2777","#d97706","#2563eb"];
+  const hue = palette[name.charCodeAt(0) % palette.length];
+  return (
+    <div style={{
+      width: 28, height: 28, borderRadius: "50%",
+      background: `${hue}22`, border: `1.5px solid ${hue}55`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: 10, fontWeight: 700, color: hue, flexShrink: 0,
+      fontFamily: "'DM Mono', monospace",
+    }}>
+      {initials}
+    </div>
+  );
+}
+
 export default function DiscussionTab({ problemId, isLight = false }) {
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
@@ -33,7 +50,7 @@ export default function DiscussionTab({ problemId, isLight = false }) {
   const handleAddComment = async (e) => {
     e.preventDefault();
     if (!newComment.trim()) {
-      alert("Nội dung thảo luận không thể bỏ trống!");
+      alert("Discussion content cannot be empty!");
       return;
     }
     try {
@@ -57,7 +74,7 @@ export default function DiscussionTab({ problemId, isLight = false }) {
 
   const handleAddReply = async (comment) => {
     if (!replyContent.trim()) {
-      alert("Nội dung phản hồi không thể bỏ trống!");
+      alert("Reply content cannot be empty!");
       return;
     }
     try {
@@ -83,7 +100,7 @@ export default function DiscussionTab({ problemId, isLight = false }) {
 
   const handleEditComment = async (commentId) => {
     if (!editContent.trim()) {
-      alert("Nội dung bình luận không thể bỏ trống!");
+      alert("Comment content cannot be empty!");
       return;
     }
     try {
@@ -106,7 +123,7 @@ export default function DiscussionTab({ problemId, isLight = false }) {
   };
 
   const handleDeleteComment = async (commentId) => {
-    if (!window.confirm("Bạn có chắc chắn muốn xóa bình luận này?")) return;
+    if (!window.confirm("Are you sure you want to delete this comment?")) return;
     try {
       const response = await fetch(`http://localhost:21081/api/comments/${commentId}/delete`, {
         method: "POST",
@@ -142,6 +159,50 @@ export default function DiscussionTab({ problemId, isLight = false }) {
     }
   };
 
+  const t = isLight ? {
+    pageBg:       "#f1f5f9",
+    surface:      "#ffffff",
+    surfaceRaised:"#f8fafc",
+    border:       "#e2e8f0",
+    borderStrong: "#cbd5e1",
+    accent:       "#059669",
+    accentDark:   "#047857",
+    accentBg:     "#ecfdf5",
+    accentBorder: "#6ee7b7",
+    textPrimary:  "#0f172a",
+    textSecondary:"#475569",
+    textMuted:    "#94a3b8",
+    inputBg:      "#ffffff",
+    inputBorder:  "#cbd5e1",
+    shadow:       "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)",
+  } : {
+    pageBg:       "transparent",
+    surface:      "#0f172a",
+    surfaceRaised:"#111827",
+    border:       "rgba(255,255,255,0.07)",
+    borderStrong: "rgba(255,255,255,0.12)",
+    accent:       "#06b6d4",
+    accentDark:   "#0891b2",
+    accentBg:     "rgba(6,182,212,0.08)",
+    accentBorder: "rgba(6,182,212,0.3)",
+    textPrimary:  "#f1f5f9",
+    textSecondary:"#64748b",
+    textMuted:    "#475569",
+    inputBg:      "#0c1524",
+    inputBorder:  "rgba(255,255,255,0.08)",
+    shadow:       "none",
+  };
+
+  const inputStyle = {
+    width: "100%", boxSizing: "border-box",
+    background: t.inputBg,
+    border: `1px solid ${t.inputBorder}`,
+    borderRadius: 7, padding: "9px 12px",
+    fontSize: 13, color: t.textPrimary,
+    outline: "none", transition: "border-color 0.15s, box-shadow 0.15s",
+    fontFamily: "inherit",
+  };
+
   // Build Tree
   const commentMap = {};
   comments.forEach((c) => {
@@ -156,144 +217,256 @@ export default function DiscussionTab({ problemId, isLight = false }) {
     }
   });
 
-  const renderCommentNode = (node, depth = 0) => {
+  const renderCommentNode = (node, depth = 0, isLastChild = true) => {
     const isOwner = Number(userId) === node.user_id;
-    const isAdmin = userRole === "admin";
+    const isAdmin = node.user_role === "admin";
 
     return (
-      <div key={node.id} className="mt-4" style={{ marginLeft: `${depth * 20}px` }}>
-        <div className={`rounded-lg border p-3 ${isLight ? "border-slate-200 bg-white" : "border-white/5 bg-slate-900/30"}`}>
-          <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1.5">
-              <span className={`font-semibold ${isLight ? "text-slate-800" : "text-emerald-400"}`}>{node.user_name}</span>
-              <span className="text-[10px] text-slate-500 capitalize">({node.user_role})</span>
-            </div>
-            <span className="text-[10px] text-slate-500">{new Date(node.created_at).toLocaleString()}</span>
-          </div>
-
-          {editingCommentId === node.id ? (
-            <div className="mt-2 space-y-1">
-              <textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                className={`w-full text-xs rounded p-2 focus:ring-1 focus:ring-emerald-500 border outline-none ${isLight ? "bg-slate-50 border-slate-300 text-slate-900" : "bg-slate-950 border-white/10 text-white"}`}
-              />
-              <div className="flex gap-1.5">
-                <button
-                  onClick={() => handleEditComment(node.id)}
-                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px]"
-                >
-                  Lưu
-                </button>
-                <button
-                  onClick={() => { setEditingCommentId(null); setEditContent(""); }}
-                  className="px-2 py-1 bg-slate-600 hover:bg-slate-500 text-white rounded text-[10px]"
-                >
-                  Hủy
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className={`mt-1.5 text-xs whitespace-pre-wrap ${isLight ? "text-slate-700" : "text-slate-200"}`}>{node.content}</p>
-          )}
-
-          <div className="mt-2 flex items-center gap-3 text-[10px] text-slate-400">
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => handleVote(node.id, 1)}
-                className={`hover:text-emerald-400 ${node.user_vote === 1 ? "text-emerald-500" : ""}`}
-              >
-                ▲
-              </button>
-              <span className="font-mono">{node.score}</span>
-              <button
-                onClick={() => handleVote(node.id, -1)}
-                className={`hover:text-rose-400 ${node.user_vote === -1 ? "text-rose-500" : ""}`}
-              >
-                ▼
-              </button>
-            </div>
-
-            <button
-              onClick={() => {
-                setReplyingTo(node.id);
-                setReplyContent(depth > 0 ? `@${node.user_name} ` : "");
-              }}
-              className="hover:text-emerald-400"
-            >
-              Phản hồi
-            </button>
-
-            {isOwner && (
-              <button onClick={() => { setEditingCommentId(node.id); setEditContent(node.content); }} className="hover:text-emerald-400">
-                Sửa
-              </button>
-            )}
-
-            {(isOwner || isAdmin) && (
-              <button onClick={() => handleDeleteComment(node.id)} className="hover:text-rose-400">
-                Xóa
-              </button>
+      <div key={node.id} style={{ marginLeft: depth > 0 ? 32 : 0, marginTop: 16 }}>
+        <div style={{ display: "flex", gap: 12 }}>
+          {/* Avatar + Connector */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+            <Avatar name={node.user_name || "?"} />
+            {!isLastChild && (
+              <div style={{
+                width: 1, flex: 1, marginTop: 6,
+                background: isLight ? "#e2e8f0" : "rgba(255,255,255,0.06)",
+                minHeight: 16,
+              }} />
             )}
           </div>
 
-          {replyingTo === node.id && (
-            <div className="mt-2 space-y-1.5 pl-3 border-l-2 border-emerald-500/20">
-              <textarea
-                rows={2}
-                value={replyContent}
-                onChange={(e) => setReplyContent(e.target.value)}
-                placeholder="Nhập nội dung phản hồi..."
-                className={`w-full text-xs rounded p-1.5 focus:ring-1 focus:ring-emerald-500 border outline-none ${isLight ? "bg-slate-50 border-slate-300 text-slate-900" : "bg-slate-950 border-white/10 text-white"}`}
-              />
-              <div className="flex gap-1.5">
+          <div style={{ flex: 1 }}>
+            {/* Sender row */}
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary }}>
+                {node.user_name}
+              </span>
+              <span style={{
+                fontSize: 9, fontWeight: 800, letterSpacing: "0.09em",
+                textTransform: "uppercase", padding: "2px 6px", borderRadius: 3,
+                background: isAdmin
+                  ? (isLight ? "#fff1f2" : "rgba(239,68,68,0.1)")
+                  : (isLight ? "#f0f9ff" : "rgba(6,182,212,0.1)"),
+                color: isAdmin
+                  ? (isLight ? "#be123c" : "#f87171")
+                  : (isLight ? "#0369a1" : "#22d3ee"),
+                border: `1px solid ${isAdmin
+                  ? (isLight ? "#fecdd3" : "rgba(239,68,68,0.25)")
+                  : (isLight ? "#bae6fd" : "rgba(6,182,212,0.25)")}`,
+              }}>
+                {node.user_role}
+              </span>
+              <span style={{ marginLeft: "auto", fontSize: 10, color: t.textMuted, fontFamily: "'DM Mono', monospace" }}>
+                {new Date(node.created_at).toLocaleString("en-GB", {
+                  day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit"
+                })}
+              </span>
+            </div>
+
+            {/* Bubble Body */}
+            <div style={{
+              padding: "11px 15px",
+              borderRadius: "4px 12px 12px 12px",
+              background: isAdmin
+                ? (isLight ? "#f0fdf4" : "rgba(16,185,129,0.07)")
+                : (isLight ? "#f8fafc" : "rgba(255,255,255,0.04)"),
+              border: `1px solid ${isAdmin
+                ? (isLight ? "#bbf7d0" : "rgba(16,185,129,0.18)")
+                : (isLight ? "#e2e8f0" : "rgba(255,255,255,0.07)")}`,
+              fontSize: 13, lineHeight: 1.7,
+              color: isLight ? "#1e293b" : "#cbd5e1",
+              position: "relative",
+            }}>
+              {isAdmin && (
+                <div style={{
+                  position: "absolute", top: 0, left: 0, bottom: 0,
+                  width: 3, borderRadius: "4px 0 0 12px",
+                  background: isLight ? "#10b981" : "#059669",
+                }} />
+              )}
+              
+              {editingCommentId === node.id ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    className="tk-input"
+                    rows={2}
+                    style={{ ...inputStyle, background: t.surface }}
+                  />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => handleEditComment(node.id)}
+                      className="tk-primary"
+                      style={{
+                        background: t.accent, border: "none", color: "#fff",
+                        borderRadius: 5, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer"
+                      }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setEditingCommentId(null); setEditContent(""); }}
+                      className="tk-ghost"
+                      style={{
+                        background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary,
+                        borderRadius: 5, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer"
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginLeft: isAdmin ? 8 : 0, whiteSpace: "pre-wrap" }}>
+                  {node.content}
+                </div>
+              )}
+            </div>
+
+            {/* Bubble Actions */}
+            <div style={{ mt: 8, display: "flex", alignItems: "center", gap: 14, fontSize: 11, color: t.textMuted, marginTop: 6, paddingLeft: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <button
-                  onClick={() => handleAddReply(node)}
-                  className="px-2.5 py-1 bg-emerald-600 text-white rounded text-[10px] font-semibold"
+                  onClick={() => handleVote(node.id, 1)}
+                  style={{ background: "none", border: "none", color: node.user_vote === 1 ? t.accent : t.textMuted, cursor: "pointer", fontSize: 12 }}
                 >
-                  Gửi
+                  ▲
                 </button>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>{node.score}</span>
                 <button
-                  onClick={() => { setReplyingTo(null); setReplyContent(""); }}
-                  className="px-2.5 py-1 bg-slate-600 text-white rounded text-[10px] font-semibold"
+                  onClick={() => handleVote(node.id, -1)}
+                  style={{ background: "none", border: "none", color: node.user_vote === -1 ? "#ef4444" : t.textMuted, cursor: "pointer", fontSize: 12 }}
                 >
-                  Hủy
+                  ▼
                 </button>
               </div>
+
+              <button
+                onClick={() => {
+                  setReplyingTo(node.id);
+                  setReplyContent(depth > 0 ? `@${node.user_name} ` : "");
+                }}
+                style={{ background: "none", border: "none", color: t.accent, cursor: "pointer", fontWeight: 600 }}
+              >
+                Reply
+              </button>
+
+              {isOwner && (
+                <button
+                  onClick={() => { setEditingCommentId(node.id); setEditContent(node.content); }}
+                  style={{ background: "none", border: "none", color: t.textSecondary, cursor: "pointer" }}
+                >
+                  Edit
+                </button>
+              )}
+
+              {(isOwner || isAdmin) && (
+                <button
+                  onClick={() => handleDeleteComment(node.id)}
+                  style={{ background: "none", border: "none", color: "#f43f5e", cursor: "pointer" }}
+                >
+                  Delete
+                </button>
+              )}
             </div>
-          )}
+
+            {/* Reply Input Form */}
+            {replyingTo === node.id && (
+              <div style={{ marginTop: 12, paddingLeft: 12, borderLeft: `2px solid ${t.accent}33` }}>
+                <textarea
+                  rows={2}
+                  value={replyContent}
+                  onChange={(e) => setReplyContent(e.target.value)}
+                  placeholder="Enter your reply..."
+                  className="tk-input"
+                  style={inputStyle}
+                />
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => handleAddReply(node)}
+                    className="tk-primary"
+                    style={{
+                      background: t.accent, border: "none", color: "#fff",
+                      borderRadius: 5, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer"
+                    }}
+                  >
+                    Reply
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setReplyingTo(null); setReplyContent(""); }}
+                    className="tk-ghost"
+                    style={{
+                      background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary,
+                      borderRadius: 5, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer"
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-        {node.children.map((child) => renderCommentNode(child, depth + 1))}
+
+        {node.children.map((child, idx) => renderCommentNode(child, depth + 1, idx === node.children.length - 1))}
       </div>
     );
   };
 
   return (
-    <div className="space-y-4">
-      <div className="border-b border-slate-800 pb-2">
-        <h3 className={`text-sm font-bold ${isLight ? "text-slate-900" : "text-white"}`}>TRANG THẢO LUẬN & ĐÁP ÁN BÀI TẬP</h3>
-        <p className="text-[10px] text-slate-400">Thảo luận cùng cộng đồng, đặt câu hỏi giải quyết lỗi thuật toán.</p>
+    <div style={{ fontFamily: "'Inter var', 'Inter', sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap');
+        .tk-input:focus {
+          border-color: ${t.accent} !important;
+          box-shadow: 0 0 0 3px ${t.accentBg} !important;
+        }
+        .tk-primary:hover { background: ${t.accentDark} !important; }
+        .tk-ghost:hover { background: ${isLight ? "#f1f5f9" : "rgba(255,255,255,0.05)"} !important; }
+      `}</style>
+
+      {/* Header bar */}
+      <div style={{ borderBottom: `1px solid ${t.border}`, paddingBottom: 10, marginBottom: 20 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: t.textPrimary, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          Discussion & Solution Space
+        </h3>
+        <p style={{ margin: "2px 0 0", fontSize: 11, color: t.textMuted }}>
+          Discuss with the community and resolve algorithm issues.
+        </p>
       </div>
 
-      <form onSubmit={handleAddComment} className="space-y-2">
+      <form onSubmit={handleAddComment} style={{ marginBottom: 20 }}>
         <textarea
           rows={2}
           value={newComment}
           onChange={(e) => setNewComment(e.target.value)}
-          placeholder="Nhập câu hỏi hoặc chia sẻ ý kiến của bạn về bài học này..."
-          className={`w-full text-xs rounded-lg p-2.5 focus:ring-1 focus:ring-emerald-500 border outline-none ${isLight ? "bg-slate-50 border-slate-300 text-slate-900" : "bg-slate-950 border-white/10 text-white"}`}
+          placeholder="Enter your question or share your thoughts on this lesson..."
+          className="tk-input"
+          style={{ ...inputStyle, marginBottom: 10 }}
         />
         <button
-          type="submit"
-          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold"
+          type="submit" className="tk-primary"
+          style={{
+            background: t.accent, border: "none", color: "#fff",
+            borderRadius: 7, padding: "8px 20px", fontSize: 12, fontWeight: 600,
+            cursor: "pointer", transition: "background 0.15s",
+          }}
         >
-          Tạo bình luận mới (Add Comment)
+          Post Discussion Comment
         </button>
       </form>
 
-      <div className="space-y-3 mt-4">
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {rootComments.length === 0 ? (
-          <p className="text-xs text-slate-400 italic">Chưa có chủ đề thảo luận nào. Hãy bắt đầu câu hỏi đầu tiên!</p>
+          <p style={{ margin: 0, fontSize: 12, color: t.textMuted, italic: true }}>
+            No discussions yet. Start the first conversation!
+          </p>
         ) : (
           rootComments.map((node) => renderCommentNode(node))
         )}
