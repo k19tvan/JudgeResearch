@@ -6,12 +6,14 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { fetchProblemContent, runProblem, submitProblem, fetchProblemSubmissions } from "../api";
+import DiscussionTab from "./tabs/DiscussionTab";
 
 const CONTENT_TABS = [
   { key: "statement", label: "Description" },
   { key: "theory", label: "Theory" },
   { key: "tutorial", label: "Editorial" },
   { key: "submissions", label: "Submissions" },
+  { key: "discussion", label: "Discussion" }, // Đã thêm tab thảo luận mới ở đây
 ];
 
 function normalizeEditorCode(raw) {
@@ -32,10 +34,9 @@ export default function LiveCodingPage() {
 
   const [activeContentTab, setActiveContentTab] = useState("statement");
   const [problem, setProblem] = useState(baseProblem || null);
-  const [isLoading, setIsLoading] = useState(true); // Đặt mặc định ban đầu là loading
+  const [isLoading, setIsLoading] = useState(true); 
   const [error, setError] = useState("");
   
-  // Khởi tạo code từ bản nháp trong localStorage nếu có bản nháp hợp lệ, nếu không dùng baseProblem
   const [code, setCode] = useState(() => {
     const savedDraft = localStorage.getItem(`draft_code_${problemId}`);
     if (savedDraft && savedDraft.trim() !== "" && savedDraft !== "undefined" && savedDraft !== "null") {
@@ -44,25 +45,20 @@ export default function LiveCodingPage() {
     return normalizeEditorCode(baseProblem?.coding_markdown || "");
   });
   
-  // Trạng thái Console
   const [consoleOutput, setConsoleOutput] = useState("Run your code to see results here...");
   const [isConsoleRunning, setIsConsoleRunning] = useState(false);
 
-  // Trạng thái lưu lịch sử submissions
   const [submissions, setSubmissions] = useState([]);
   const [isSubmissionsLoading, setIsSubmissionsLoading] = useState(false);
   const [expandedSubId, setExpandedSubId] = useState(null);
 
-  // Lấy ID người dùng hiện tại
   const currentUserId = Number(localStorage.getItem("user_id") || "1");
 
-  // 1. Tải nội dung bài tập từ backend và kiểm tra bản nháp lưu trữ
   useEffect(() => {
     const loadProblemContent = async () => {
       setIsLoading(true);
       setError("");
       try {
-        // Truyền thêm currentUserId vào API
         const result = await fetchProblemContent(problemId, currentUserId);
         const contentProblem = result?.data;
         if (contentProblem) {
@@ -88,7 +84,6 @@ export default function LiveCodingPage() {
     loadProblemContent();
   }, [problemId, currentUserId]);
 
-  // 2. Tải danh sách submissions khi người dùng chuyển sang Tab Submissions
   const loadSubmissionsList = async () => {
     setIsSubmissionsLoading(true);
     try {
@@ -107,9 +102,7 @@ export default function LiveCodingPage() {
     }
   }, [activeContentTab, problemId]);
 
-  // 3. Tự động lưu bản nháp vào localStorage (Chỉ thực hiện khi đã load thành công dữ liệu từ backend)
   useEffect(() => {
-    // CHẶN GHI ĐÈ LỖI: Không tự động lưu bản nháp trống nếu dữ liệu bài tập chưa được load hoàn tất
     if (!problemId || !problem || isLoading) return;
 
     const delayDebounceFn = setTimeout(() => {
@@ -119,7 +112,6 @@ export default function LiveCodingPage() {
     return () => clearTimeout(delayDebounceFn);
   }, [code, problemId, problem, isLoading]);
 
-  // Khôi phục lại code mẫu ban đầu
   const handleResetCode = () => {
     const confirmReset = window.confirm("Are you sure you want to reset your code to the default template?");
     if (confirmReset && problem) {
@@ -166,7 +158,6 @@ export default function LiveCodingPage() {
         });
         setConsoleOutput(parts.join('\n'));
 
-        // Nếu đang ở tab submissions, tự động tải lại danh sách sau khi nộp thành công
         if (activeContentTab === "submissions") {
           loadSubmissionsList();
         }
@@ -178,7 +169,6 @@ export default function LiveCodingPage() {
     })();
   };
 
-  // Khôi phục code cũ từ một submission lịch sử vào trình soạn thảo chính
   const handleLoadSubmittedCode = (submittedCode) => {
     const confirmLoad = window.confirm("Do you want to load this submitted code into your codespace? This will overwrite your current workspace.");
     if (confirmLoad) {
@@ -191,7 +181,6 @@ export default function LiveCodingPage() {
     setExpandedSubId(expandedSubId === id ? null : id);
   };
 
-  // Ánh xạ màu sắc hiển thị cho trạng thái nộp bài
   const getStatusBadgeClass = (status) => {
     const lowerStatus = status.toLowerCase();
     if (lowerStatus === "accepted") return "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
@@ -309,7 +298,7 @@ export default function LiveCodingPage() {
       {/* WORKSPACE AREA */}
       <main className="flex flex-1 w-full overflow-hidden p-2 gap-2 bg-[#080711]">
         
-        {/* LEFT COLUMN: Problem Info Panel & Submissions List */}
+        {/* LEFT COLUMN: Problem Info Panel, Submissions & Discussions */}
         <section className="flex w-1/2 flex-col h-full rounded-xl border border-white/5 bg-slate-950/20 backdrop-blur-xl overflow-hidden">
           <nav className="flex border-b border-white/5 bg-slate-950/40">
             {CONTENT_TABS.map((tab) => (
@@ -330,7 +319,10 @@ export default function LiveCodingPage() {
 
           {/* Internal Scrollable Content Box */}
           <div className="flex-1 overflow-y-auto p-5 bg-slate-950/10">
-            {activeContentTab === "submissions" ? (
+            {activeContentTab === "discussion" ? (
+              /* PANEL HIỂN THỊ THẢO LUẬN BÀI TẬP (DISCUSSION) */
+              <DiscussionTab problemId={problemId} isLight={false} />
+            ) : activeContentTab === "submissions" ? (
               /* PANEL HIỂN THỊ DANH SÁCH SUBMISSIONS */
               <div className="space-y-3">
                 <h3 className="text-sm font-bold text-slate-200 mb-3 uppercase tracking-wider">Submission History</h3>
@@ -345,7 +337,6 @@ export default function LiveCodingPage() {
                       key={sub.id} 
                       className="rounded-lg border border-white/5 bg-slate-950/50 overflow-hidden transition hover:border-white/10"
                     >
-                      {/* Tiêu đề ngắn gọn của submission */}
                       <div 
                         onClick={() => toggleExpandSubmission(sub.id)}
                         className="flex cursor-pointer items-center justify-between p-3 select-none"
@@ -365,10 +356,8 @@ export default function LiveCodingPage() {
                         </div>
                       </div>
 
-                      {/* Chi tiết khi nhấn mở rộng (Xem chi tiết từng testcase và khôi phục code) */}
                       {expandedSubId === sub.id && (
                         <div className="border-t border-white/5 bg-slate-950/80 p-3 space-y-3">
-                          {/* Nút khôi phục code */}
                           <div className="flex justify-between items-center">
                             <span className="text-[10px] font-mono text-slate-400">Submission #{sub.id} Details</span>
                             <button
@@ -380,7 +369,6 @@ export default function LiveCodingPage() {
                             </button>
                           </div>
 
-                          {/* Chi tiết các testcase */}
                           {sub.test_results && sub.test_results.length > 0 ? (
                             <div className="space-y-1.5 font-mono text-[11px] bg-black/30 p-2 rounded">
                               {sub.test_results.map((tc, idx) => (
