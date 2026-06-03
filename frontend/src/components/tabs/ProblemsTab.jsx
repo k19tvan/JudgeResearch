@@ -13,6 +13,7 @@ export default function ProblemsTab({ isLight = false }) {
   const [problems, setProblems] = useState([]);
   const [filterMode, setFilterMode] = useState("all");
   const [editingProblemId, setEditingProblemId] = useState(null);
+  const [deletingProblem, setDeletingProblem] = useState(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -26,6 +27,7 @@ export default function ProblemsTab({ isLight = false }) {
   });
   const [inputZipFile, setInputZipFile] = useState(null);
   const [outputZipFile, setOutputZipFile] = useState(null);
+  const [testcases, setTestcases] = useState([]);
 
   const role = localStorage.getItem("user_role") || "user";
   const currentUserId = Number(localStorage.getItem("user_id") || "1");
@@ -40,8 +42,26 @@ export default function ProblemsTab({ isLight = false }) {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingProblemId(null);
+    setTestcases([]);
     resetForm();
     setError("");
+  };
+
+  const handleAddTestcase = () => {
+    setTestcases((prev) => [
+      ...prev,
+      { id: Date.now(), input: "{}", output: "{}" },
+    ]);
+  };
+
+  const handleDeleteTestcase = (indexToDelete) => {
+    setTestcases((prev) => prev.filter((_, idx) => idx !== indexToDelete));
+  };
+
+  const handleTestcaseChange = (index, field, value) => {
+    setTestcases((prev) =>
+      prev.map((tc, idx) => (idx === index ? { ...tc, [field]: value } : tc))
+    );
   };
 
   const resetForm = () => {
@@ -95,6 +115,20 @@ export default function ProblemsTab({ isLight = false }) {
           checker_markdown: result.data.checker_markdown || "",
         });
         setEditingProblemId(problem.id);
+        
+        try {
+          const tcResponse = await fetch(`http://localhost:21081/api/problems/${problem.id}/testcases`);
+          const tcResult = await tcResponse.json();
+          if (tcResponse.ok && tcResult.data) {
+            setTestcases(tcResult.data);
+          } else {
+            setTestcases([]);
+          }
+        } catch (tcErr) {
+          console.error("Failed to load test cases:", tcErr);
+          setTestcases([]);
+        }
+
         setIsModalOpen(true);
       } else {
         alert(result.detail || "Failed to load problem content");
@@ -104,26 +138,30 @@ export default function ProblemsTab({ isLight = false }) {
     }
   };
 
-  const handleDeleteProblemDirect = async (e, problemId) => {
+  const handleDeleteProblemDirect = (e, problem) => {
     e.stopPropagation();
-    const confirmDel = window.confirm("Are you sure you want to delete this problem permanently?");
-    if (confirmDel) {
-      try {
-        const response = await fetch(`http://localhost:21081/api/problems/${problemId}`, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_id: currentUserId })
-        });
-        if (response.ok) {
-          alert("Problem deleted successfully!");
-          await loadProblems();
-        } else {
-          const result = await response.json();
-          alert(`Error: ${result.detail || "Delete failed"}`);
-        }
-      } catch (err) {
-        alert("Failed to delete problem: " + err.message);
+    setDeletingProblem(problem);
+  };
+
+  const confirmDeleteProblem = async () => {
+    if (!deletingProblem) return;
+    const problemId = deletingProblem.id;
+    setDeletingProblem(null);
+    try {
+      const response = await fetch(`http://localhost:21081/api/problems/${problemId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: currentUserId })
+      });
+      if (response.ok) {
+        alert("Problem deleted successfully!");
+        await loadProblems();
+      } else {
+        const result = await response.json();
+        alert(`Error: ${result.detail || "Delete failed"}`);
       }
+    } catch (err) {
+      alert("Failed to delete problem: " + err.message);
     }
   };
 
@@ -139,20 +177,46 @@ export default function ProblemsTab({ isLight = false }) {
       }
 
       if (editingProblemId) {
+        const formPayload = new FormData();
+        formPayload.append("user_id", currentUserId);
+        formPayload.append("name", formData.name);
+        formPayload.append("source", formData.source || "");
+        formPayload.append("statement_markdown", formData.statement_markdown);
+        formPayload.append("theory_markdown", formData.theory_markdown || "");
+        formPayload.append("tutorial_markdown", formData.tutorial_markdown || "");
+        formPayload.append("solution_markdown", formData.solution_markdown || "");
+        formPayload.append("coding_markdown", formData.coding_markdown || "");
+        formPayload.append("checker_markdown", formData.checker_markdown || "");
+
+        if (inputZipFile) {
+          formPayload.append("input_zip", inputZipFile);
+        }
+        if (outputZipFile) {
+          formPayload.append("output_zip", outputZipFile);
+        }
+
+        // Only validate and append testcases if no zip file is uploaded
+        if (!inputZipFile && !outputZipFile) {
+          // Validate testcases JSON
+          for (let i = 0; i < testcases.length; i++) {
+            const tc = testcases[i];
+            try {
+              JSON.parse(tc.input);
+            } catch (e) {
+              throw new Error(`Test Case #${i + 1} Input is not valid JSON: ${e.message}`);
+            }
+            try {
+              JSON.parse(tc.output);
+            } catch (e) {
+              throw new Error(`Test Case #${i + 1} Output is not valid JSON: ${e.message}`);
+            }
+          }
+          formPayload.append("testcases", JSON.stringify(testcases));
+        }
+
         const response = await fetch(`http://localhost:21081/api/problems/${editingProblemId}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user_id: currentUserId,
-            name: formData.name,
-            source: formData.source,
-            statement_markdown: formData.statement_markdown,
-            theory_markdown: formData.theory_markdown,
-            tutorial_markdown: formData.tutorial_markdown,
-            solution_markdown: formData.solution_markdown,
-            coding_markdown: formData.coding_markdown,
-            checker_markdown: formData.checker_markdown
-          })
+          body: formPayload
         });
         const result = await response.json();
         if (!response.ok) {
@@ -347,6 +411,19 @@ export default function ProblemsTab({ isLight = false }) {
         }
         .tk-primary:hover { background: ${t.accentDark} !important; }
         .tk-ghost:hover { background: ${isLight ? "#f1f5f9" : "rgba(255,255,255,0.05)"} !important; }
+
+        /* Custom scrollbar style */
+        ::-webkit-scrollbar {
+          width: 6px;
+          height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+          background: rgba(15, 23, 42, 0.05);
+        }
+        ::-webkit-scrollbar-thumb {
+          background: ${isLight ? "rgba(15,23,42,0.12)" : "rgba(255, 255, 255, 0.08)"};
+          border-radius: 4px;
+        }
       `}</style>
 
       {/* ── Page Header ── */}
@@ -612,7 +689,7 @@ export default function ProblemsTab({ isLight = false }) {
 
                     {/* Sửa và Xóa */}
                     <td style={{ padding: "14px 10px", width: 140, textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
-                      {role === "admin" || (role === "contributor" && problem.author_id === currentUserId && reqStatus !== "APPROVED") ? (
+                      {role === "admin" || (role === "contributor" && problem.author_id === currentUserId) ? (
                         <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
                           <button
                             type="button"
@@ -629,7 +706,7 @@ export default function ProblemsTab({ isLight = false }) {
                           </button>
                           <button
                             type="button"
-                            onClick={(e) => handleDeleteProblemDirect(e, problem.id)}
+                            onClick={(e) => handleDeleteProblemDirect(e, problem)}
                             style={{
                               background: isLight ? "#e11d48" : "transparent",
                               border: isLight ? "none" : "1px solid rgba(244,63,94,0.3)",
@@ -856,25 +933,118 @@ export default function ProblemsTab({ isLight = false }) {
                 />
               </div>
 
-              {!editingProblemId && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <div>
-                    <label style={labelStyle}>Input Zip File (.zip)</label>
-                    <input
-                      type="file"
-                      accept=".zip"
-                      onChange={(e) => setInputZipFile(e.target.files[0])}
-                      style={{ fontSize: 12, color: t.textSecondary }}
-                    />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Input Zip File (.zip) {editingProblemId && "(optional, overwrites manager)"}</label>
+                  <input
+                    type="file"
+                    accept=".zip"
+                    onChange={(e) => setInputZipFile(e.target.files[0])}
+                    style={{ fontSize: 12, color: t.textSecondary }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Output Zip File (.zip) {editingProblemId && "(optional, overwrites manager)"}</label>
+                  <input
+                    type="file"
+                    accept=".zip"
+                    onChange={(e) => setOutputZipFile(e.target.files[0])}
+                    style={{ fontSize: 12, color: t.textSecondary }}
+                  />
+                </div>
+              </div>
+
+              {editingProblemId && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <label style={{ ...labelStyle, marginBottom: 0 }}>Test Cases Manager ({testcases.length})</label>
+                    <button
+                      type="button"
+                      onClick={handleAddTestcase}
+                      style={{
+                        background: t.accentBg,
+                        border: `1px solid ${t.accentBorder}`,
+                        color: t.accent,
+                        borderRadius: 6,
+                        padding: "4px 10px",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      + Add Test Case
+                    </button>
                   </div>
-                  <div>
-                    <label style={labelStyle}>Output Zip File (.zip)</label>
-                    <input
-                      type="file"
-                      accept=".zip"
-                      onChange={(e) => setOutputZipFile(e.target.files[0])}
-                      style={{ fontSize: 12, color: t.textSecondary }}
-                    />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: 220, overflowY: "auto", paddingRight: 4 }}>
+                    {testcases.map((tc, idx) => (
+                      <div
+                        key={tc.id || idx}
+                        style={{
+                          border: `1px solid ${t.border}`,
+                          borderRadius: 8,
+                          padding: 12,
+                          background: isLight ? "#f8fafc" : "rgba(255,255,255,0.02)",
+                          position: "relative"
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: t.accent }}>Test Case #{idx + 1}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTestcase(idx)}
+                            style={{
+                              background: "rgba(239, 68, 68, 0.1)",
+                              border: "1px solid rgba(239, 68, 68, 0.3)",
+                              color: "#ef4444",
+                              borderRadius: 4,
+                              padding: "2px 6px",
+                              fontSize: 10,
+                              fontWeight: 600,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                          <div>
+                            <span style={{ display: "block", fontSize: 10, color: t.textSecondary, marginBottom: 4 }}>Input JSON</span>
+                            <textarea
+                              value={tc.input}
+                              onChange={(e) => handleTestcaseChange(idx, "input", e.target.value)}
+                              rows={3}
+                              className="tk-input"
+                              style={{
+                                ...inputStyle,
+                                fontFamily: "'DM Mono', monospace",
+                                fontSize: 11,
+                                resize: "vertical"
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <span style={{ display: "block", fontSize: 10, color: t.textSecondary, marginBottom: 4 }}>Output JSON</span>
+                            <textarea
+                              value={tc.output}
+                              onChange={(e) => handleTestcaseChange(idx, "output", e.target.value)}
+                              rows={3}
+                              className="tk-input"
+                              style={{
+                                ...inputStyle,
+                                fontFamily: "'DM Mono', monospace",
+                                fontSize: 11,
+                                resize: "vertical"
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {testcases.length === 0 && (
+                      <div style={{ textAlign: "center", padding: 20, color: t.textSecondary, fontSize: 12 }}>
+                        No test cases defined. Click "+ Add Test Case" to create one.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -912,6 +1082,59 @@ export default function ProblemsTab({ isLight = false }) {
           </div>
         </div>
         , document.body)}
+
+      {/* DELETE CONFIRMATION PORTAL */}
+      {deletingProblem && createPortal(
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1300, display: "flex",
+          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          padding: 16
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400, background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 12, padding: 20, boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+            fontFamily: "'Inter var', 'Inter', sans-serif", color: t.textPrimary,
+            position: "relative"
+          }}>
+            {/* red top stripe */}
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "#ef4444"
+            }} />
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: isLight ? "#be123c" : "#f87171" }}>
+              Delete Problem
+            </h4>
+            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
+              Are you sure you want to delete the problem <strong>{deletingProblem.name}</strong> permanently? This action cannot be undone.
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setDeletingProblem(null)}
+                className="tk-ghost"
+                style={{
+                  background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary,
+                  borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer"
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteProblem}
+                style={{
+                  background: "#ef4444", border: "none", color: "#fff",
+                  borderRadius: 6, padding: "6px 14px", fontSize: 11, fontWeight: 700, cursor: "pointer"
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

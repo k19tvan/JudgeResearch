@@ -688,7 +688,7 @@ def get_problem_content(problem_id: int, user_id: Optional[int] = None, db: sqli
     cursor = db.cursor()
     try:
         cursor.execute("""
-            SELECT id, name, statement_path, theory_path, tutorial_path, solution_path, coding_path
+            SELECT id, name, source, statement_path, theory_path, tutorial_path, solution_path, coding_path, checker_path
             FROM problems
             WHERE id = ?
         """, (problem_id,))
@@ -716,6 +716,7 @@ def get_problem_content(problem_id: int, user_id: Optional[int] = None, db: sqli
         tutorial_markdown = read_file(data["tutorial_path"])
         solution_markdown = read_file(data["solution_path"])
         coding_markdown = read_file(data["coding_path"])
+        checker_markdown = read_file(data["checker_path"]) if role in ("admin", "contributor") else ""
 
         if role not in ("admin", "contributor"):
             has_solved = False
@@ -736,11 +737,13 @@ def get_problem_content(problem_id: int, user_id: Optional[int] = None, db: sqli
             "data": {
                 "id": data["id"],
                 "name": data["name"],
+                "source": data["source"],
                 "statement_markdown": statement_markdown,
                 "theory_markdown": theory_markdown,
                 "tutorial_markdown": tutorial_markdown,
                 "solution_markdown": solution_markdown,
                 "coding_markdown": coding_markdown,
+                "checker_markdown": checker_markdown,
             }
         }
     except sqlite3.Error as e:
@@ -2084,54 +2087,193 @@ def get_draft_session_detail(session_id: int, db: sqlite3.Connection = Depends(g
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
+# Usecase: Lấy danh sách testcase của bài tập
+@app.get("/api/problems/{problem_id}/testcases")
+def get_problem_testcases(problem_id: int, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT input_folder_path, output_folder_path FROM problems WHERE id = ?", (problem_id,))
+    row = cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Problem not found")
+    
+    input_folder = row["input_folder_path"]
+    output_folder = row["output_folder_path"]
+    
+    if not input_folder or not os.path.exists(input_folder):
+        return {"status": "success", "data": []}
+        
+    try:
+        input_files = sorted([f for f in os.listdir(input_folder) if f.endswith('.json')])
+        output_files = []
+        if output_folder and os.path.exists(output_folder):
+            output_files = sorted([f for f in os.listdir(output_folder) if f.endswith('.json')])
+            
+        testcases = []
+        for idx, f in enumerate(input_files, start=1):
+            inp_path = os.path.join(input_folder, f)
+            
+            with open(inp_path, "r", encoding="utf-8") as file_in:
+                inp_content = file_in.read()
+            
+            out_content = ""
+            out_path = None
+            if output_folder and os.path.exists(output_folder):
+                guess_names = [f"output_{idx}.json", f"input_{idx}.json", f]
+                for g_name in guess_names:
+                    p = os.path.join(output_folder, g_name)
+                    if os.path.exists(p):
+                        out_path = p
+                        break
+                if not out_path and len(output_files) >= idx:
+                    out_path = os.path.join(output_folder, output_files[idx - 1])
+                    
+            if out_path and os.path.exists(out_path):
+                with open(out_path, "r", encoding="utf-8") as file_out:
+                    out_content = file_out.read()
+                    
+            testcases.append({
+                "id": idx,
+                "input": inp_content,
+                "output": out_content
+            })
+        return {"status": "success", "data": testcases}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Usecase : Sửa bài tập cho contribution và admin
 @app.put("/api/problems/{problem_id}")
-def update_problem(problem_id: int, payload: ProblemUpdatePayload, db: sqlite3.Connection = Depends(get_db)):
+async def update_problem(
+    problem_id: int,
+    user_id: int = Form(...),
+    name: Optional[str] = Form(None),
+    source: Optional[str] = Form(None),
+    statement_markdown: Optional[str] = Form(None),
+    theory_markdown: Optional[str] = Form(None),
+    tutorial_markdown: Optional[str] = Form(None),
+    solution_markdown: Optional[str] = Form(None),
+    coding_markdown: Optional[str] = Form(None),
+    checker_markdown: Optional[str] = Form(None),
+    testcases: Optional[str] = Form(None),
+    input_zip: Optional[UploadFile] = File(None),   
+    output_zip: Optional[UploadFile] = File(None), 
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
-    cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
+    cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
     user = cursor.fetchone()
     if not user or user["role"] not in ("admin", "contributor"):
         raise HTTPException(status_code=403, detail="Unauthorized")
     
-    cursor.execute("SELECT author_id, request_status, statement_path, theory_path, tutorial_path, solution_path, coding_path, checker_path FROM problems WHERE id = ?", (problem_id,))
+    cursor.execute("SELECT author_id, request_status, statement_path, theory_path, tutorial_path, solution_path, coding_path, checker_path, input_folder_path, output_folder_path FROM problems WHERE id = ?", (problem_id,))
     prob = cursor.fetchone()
     if not prob:
         raise HTTPException(status_code=404, detail="Problem not found")
     
     if user["role"] == "contributor":
-        if prob["author_id"] != payload.user_id:
+        if prob["author_id"] != user_id:
             raise HTTPException(status_code=403, detail="You can only edit your own problems")
-        if prob["request_status"] == "APPROVED":
-            raise HTTPException(status_code=403, detail="Cannot edit approved/public problems")
     
     update_fields = []
     params = []
     
-    if payload.name:
+    if name:
         update_fields.append("name = ?")
-        params.append(payload.name)
-    if payload.source is not None:
+        params.append(name)
+    if source is not None:
         update_fields.append("source = ?")
-        params.append(payload.source)
+        params.append(source)
         
-    if payload.statement_markdown is not None and prob["statement_path"]:
+    problem_folder = os.path.dirname(prob["statement_path"])
+        
+    if statement_markdown is not None and prob["statement_path"]:
         with open(prob["statement_path"], "w", encoding="utf-8") as f:
-            f.write(payload.statement_markdown)
-    if payload.theory_markdown is not None and prob["theory_path"]:
+            f.write(statement_markdown)
+    if theory_markdown is not None and prob["theory_path"]:
         with open(prob["theory_path"], "w", encoding="utf-8") as f:
-            f.write(payload.theory_markdown)
-    if payload.tutorial_markdown is not None and prob["tutorial_path"]:
+            f.write(theory_markdown)
+    if tutorial_markdown is not None and prob["tutorial_path"]:
         with open(prob["tutorial_path"], "w", encoding="utf-8") as f:
-            f.write(payload.tutorial_markdown)
-    if payload.solution_markdown is not None and prob["solution_path"]:
+            f.write(tutorial_markdown)
+    if solution_markdown is not None and prob["solution_path"]:
         with open(prob["solution_path"], "w", encoding="utf-8") as f:
-            f.write(payload.solution_markdown)
-    if payload.coding_markdown is not None and prob["coding_path"]:
+            f.write(solution_markdown)
+    if coding_markdown is not None and prob["coding_path"]:
         with open(prob["coding_path"], "w", encoding="utf-8") as f:
-            f.write(payload.coding_markdown)
-    if payload.checker_markdown is not None and prob["checker_path"]:
+            f.write(coding_markdown)
+    if checker_markdown is not None and prob["checker_path"]:
         with open(prob["checker_path"], "w", encoding="utf-8") as f:
-            f.write(payload.checker_markdown)
+            f.write(checker_markdown)
+            
+    if input_zip:
+        if prob["input_folder_path"] and os.path.exists(prob["input_folder_path"]):
+            try:
+                shutil.rmtree(prob["input_folder_path"])
+            except Exception:
+                pass
+        input_folder_path = save_and_unzip_file(problem_folder, input_zip, "inputs")
+        if not validate_folder_structure(input_folder_path):
+            raise HTTPException(status_code=400, detail="Invalid input folder structure")
+        update_fields.append("input_folder_path = ?")
+        params.append(input_folder_path)
+
+    if output_zip:
+        if prob["output_folder_path"] and os.path.exists(prob["output_folder_path"]):
+            try:
+                shutil.rmtree(prob["output_folder_path"])
+            except Exception:
+                pass
+        output_folder_path = save_and_unzip_file(problem_folder, output_zip, "outputs")
+        if not validate_folder_structure(output_folder_path):
+            raise HTTPException(status_code=400, detail="Invalid output folder structure")
+        update_fields.append("output_folder_path = ?")
+        params.append(output_folder_path)
+
+    if testcases is not None and not input_zip and not output_zip:
+        input_folder = prob["input_folder_path"]
+        output_folder = prob["output_folder_path"]
+        
+        if not input_folder:
+            input_folder = os.path.join(problem_folder, "inputs")
+            update_fields.append("input_folder_path = ?")
+            params.append(input_folder)
+            
+        if not output_folder:
+            output_folder = os.path.join(problem_folder, "outputs")
+            update_fields.append("output_folder_path = ?")
+            params.append(output_folder)
+            
+        os.makedirs(input_folder, exist_ok=True)
+        os.makedirs(output_folder, exist_ok=True)
+        
+        # Clear existing
+        for f in os.listdir(input_folder):
+            try:
+                os.remove(os.path.join(input_folder, f))
+            except Exception:
+                pass
+        for f in os.listdir(output_folder):
+            try:
+                os.remove(os.path.join(output_folder, f))
+            except Exception:
+                pass
+                
+        try:
+            tc_list = json.loads(testcases)
+            for idx, tc in enumerate(tc_list, start=1):
+                inp_filename = f"input_{idx}.json"
+                out_filename = f"output_{idx}.json"
+                inp_path = os.path.join(input_folder, inp_filename)
+                out_path = os.path.join(output_folder, out_filename)
+                
+                with open(inp_path, "w", encoding="utf-8") as f_in:
+                    parsed_inp = json.loads(tc["input"]) if isinstance(tc["input"], str) else tc["input"]
+                    json.dump(parsed_inp, f_in, indent=2)
+                    
+                with open(out_path, "w", encoding="utf-8") as f_out:
+                    parsed_out = json.loads(tc["output"]) if isinstance(tc["output"], str) else tc["output"]
+                    json.dump(parsed_out, f_out, indent=2)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to process testcases: {str(e)}")
             
     if update_fields:
         update_fields.append("updated_at = CURRENT_TIMESTAMP")
@@ -2157,8 +2299,6 @@ def delete_problem(problem_id: int, payload: ProblemDeletePayload, db: sqlite3.C
     if user["role"] == "contributor":
         if prob["author_id"] != payload.user_id:
             raise HTTPException(status_code=403, detail="You can only delete your own problems")
-        if prob["request_status"] == "APPROVED":
-            raise HTTPException(status_code=403, detail="Cannot delete approved/public problems")
             
     for key in ["statement_path", "theory_path", "tutorial_path", "solution_path", "coding_path", "checker_path"]:
         p = prob[key]
