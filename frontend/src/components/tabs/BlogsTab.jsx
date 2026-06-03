@@ -1,5 +1,6 @@
 // src/components/tabs/BlogsTab.jsx
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 
 function Avatar({ name = "?" }) {
   const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
@@ -36,6 +37,8 @@ export default function BlogsTab({ isLight = false }) {
   const [editingBlog, setEditingBlog] = useState(null);
   const [editBlogTitle, setEditBlogTitle] = useState("");
   const [editBlogContent, setEditBlogContent] = useState("");
+  const [blogToDelete, setBlogToDelete] = useState(null);
+  const [successMessage, setSuccessMessage] = useState("");
 
   const userId = localStorage.getItem("user_id");
   const userRole = localStorage.getItem("user_role") || "user";
@@ -143,8 +146,7 @@ export default function BlogsTab({ isLight = false }) {
     }
   };
 
-  const handleDeleteBlog = async (blogId) => {
-    if (!window.confirm("Are you sure you want to delete this article? This will remove all associated comments/discussions.")) return;
+  const confirmDeleteBlog = async (blogId) => {
     try {
       const response = await fetch(`http://localhost:21081/api/blogs/${blogId}?user_id=${userId}`, {
         method: "DELETE"
@@ -161,6 +163,7 @@ export default function BlogsTab({ isLight = false }) {
           setEditBlogTitle("");
           setEditBlogContent("");
         }
+        setSuccessMessage("Blog deleted successfully!");
       } else {
         alert(result.detail || "An error occurred while deleting the article.");
       }
@@ -889,7 +892,7 @@ export default function BlogsTab({ isLight = false }) {
                             onClick={(e) => {
                               e.stopPropagation();
                               setActiveDropdownBlogId(null);
-                              handleDeleteBlog(b.id);
+                              setBlogToDelete(b);
                             }}
                             style={{
                               background: "transparent",
@@ -1118,7 +1121,7 @@ export default function BlogsTab({ isLight = false }) {
                           onClick={(e) => {
                             e.stopPropagation();
                             setActiveDropdownBlogId(null);
-                            handleDeleteBlog(selectedBlog.id);
+                            setBlogToDelete(selectedBlog);
                           }}
                           style={{
                             background: "transparent",
@@ -1213,6 +1216,103 @@ export default function BlogsTab({ isLight = false }) {
             </div>
           </div>
         </div>
+      )}
+
+      {blogToDelete && createPortal(
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1300, display: "flex",
+          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          padding: 16
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400, background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 12, padding: 20, boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+            fontFamily: "'Inter var', 'Inter', sans-serif", color: t.textPrimary,
+            position: "relative"
+          }}>
+            {/* red top stripe */}
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "#ef4444"
+            }} />
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: isLight ? "#be123c" : "#f87171" }}>
+              Delete Article
+            </h4>
+            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
+              Are you sure you want to delete this article? This will remove all associated comments/discussions.
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setBlogToDelete(null)}
+                className="tk-ghost"
+                style={{
+                  background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary,
+                  borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer"
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const id = blogToDelete.id;
+                  setBlogToDelete(null);
+                  confirmDeleteBlog(id);
+                }}
+                style={{
+                  background: "#ef4444", border: "none", color: "#fff",
+                  borderRadius: 6, padding: "6px 14px", fontSize: 11, fontWeight: 700, cursor: "pointer"
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {successMessage && createPortal(
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1400, display: "flex",
+          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          padding: 16
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400, background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 12, padding: 20, boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+            fontFamily: "'Inter var', 'Inter', sans-serif", color: t.textPrimary,
+            position: "relative"
+          }}>
+            {/* green top stripe */}
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "#10b981"
+            }} />
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: "#10b981" }}>
+              Success
+            </h4>
+            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
+              {successMessage}
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setSuccessMessage("")}
+                style={{
+                  background: "#10b981", border: "none", color: "#fff",
+                  borderRadius: 6, padding: "6px 16px", fontSize: 11, fontWeight: 700, cursor: "pointer"
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

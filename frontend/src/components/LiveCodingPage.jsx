@@ -98,6 +98,8 @@ export default function LiveCodingPage() {
   const [outputZipFile, setOutputZipFile] = useState(null);
   const [testcases, setTestcases] = useState([]);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [onSuccessOk, setOnSuccessOk] = useState(null);
 
   const closeEditModal = () => {
     setIsEditModalOpen(false);
@@ -256,8 +258,8 @@ export default function LiveCodingPage() {
         body: JSON.stringify({ user_id: currentUserId })
       });
       if (response.ok) {
-        alert("Problem deleted successfully!");
-        navigate("/", { state: { activeTab: "PROBLEMS" } });
+        setSuccessMessage("Problem deleted successfully!");
+        setOnSuccessOk(() => () => navigate("/", { state: { activeTab: "PROBLEMS" } }));
       } else {
         const result = await response.json();
         alert(`Error: ${result.detail || "Delete failed"}`);
@@ -1538,6 +1540,53 @@ export default function LiveCodingPage() {
                 }}
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {successMessage && createPortal(
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1400, display: "flex",
+          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          padding: 16
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400, background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 12, padding: 20, boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+            fontFamily: "'Sora', sans-serif", color: t.textPrimary,
+            position: "relative"
+          }}>
+            {/* green top stripe */}
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "#10b981"
+            }} />
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: "#10b981" }}>
+              Success
+            </h4>
+            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
+              {successMessage}
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setSuccessMessage("");
+                  if (onSuccessOk) {
+                    onSuccessOk();
+                    setOnSuccessOk(null);
+                  }
+                }}
+                style={{
+                  background: "#10b981", border: "none", color: "#fff",
+                  borderRadius: 6, padding: "6px 16px", fontSize: 11, fontWeight: 700, cursor: "pointer"
+                }}
+              >
+                OK
               </button>
             </div>
           </div>
