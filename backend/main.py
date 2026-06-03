@@ -2638,24 +2638,14 @@ def list_tickets(user_id: int, db: sqlite3.Connection = Depends(get_db)):
         if not user:
             raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
             
-        # Admin xem tất cả, User/Contributor xem ticket cá nhân
-        if user["role"] == "admin":
-            cursor.execute("""
-                SELECT t.id, t.user_id, t.title, t.description, t.status, t.image_url, t.created_at, t.updated_at,
-                       u.display_name AS creator_name
-                FROM tickets t
-                JOIN users u ON t.user_id = u.id
-                ORDER BY t.created_at DESC
-            """)
-        else:
-            cursor.execute("""
-                SELECT t.id, t.user_id, t.title, t.description, t.status, t.image_url, t.created_at, t.updated_at,
-                       u.display_name AS creator_name
-                FROM tickets t
-                JOIN users u ON t.user_id = u.id
-                WHERE t.user_id = ?
-                ORDER BY t.created_at DESC
-            """, (user_id,))
+        # ALL users now see ALL tickets (Public Issue Tracker)
+        cursor.execute("""
+            SELECT t.id, t.user_id, t.title, t.description, t.status, t.image_url, t.created_at, t.updated_at,
+                   u.display_name AS creator_name
+            FROM tickets t
+            JOIN users u ON t.user_id = u.id
+            ORDER BY t.created_at DESC
+        """)
         return {"status": "success", "data": [dict(row) for row in cursor.fetchall()]}
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -2669,7 +2659,6 @@ def get_ticket_detail(ticket_id: int, user_id: int, db: sqlite3.Connection = Dep
         if not user:
             raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
             
-        # 1. Correct query for the MAIN TICKET
         cursor.execute("""
             SELECT t.id, t.user_id, t.title, t.description, t.status, t.image_url, t.created_at, t.updated_at,
                    u.display_name AS creator_name
@@ -2681,10 +2670,8 @@ def get_ticket_detail(ticket_id: int, user_id: int, db: sqlite3.Connection = Dep
         if not ticket:
             raise HTTPException(status_code=404, detail="Không tìm thấy Ticket hỗ trợ")
             
-        if user["role"] != "admin" and ticket["user_id"] != user_id:
-            raise HTTPException(status_code=403, detail="Bạn không có quyền xem Ticket này")
+        # REMOVED: Ownership restriction check. Anyone can view the ticket now!
             
-        # 2. Correct query for the REPLIES (now correctly includes r.image_url)
         cursor.execute("""
             SELECT r.id, r.user_id, r.message, r.image_url, r.created_at,
                    u.display_name AS replier_name, u.role AS replier_role, u.avatar_url AS replier_avatar
@@ -2721,17 +2708,18 @@ async def create_ticket_reply(
 
     cursor = db.cursor()
     try:
-        # Check permissions
         cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
         user = cursor.fetchone()
         
-        cursor.execute("SELECT user_id FROM tickets WHERE id = ?", (ticket_id,))
+        cursor.execute("SELECT user_id, status FROM tickets WHERE id = ?", (ticket_id,))
         ticket = cursor.fetchone()
         if not ticket:
             raise HTTPException(status_code=404, detail="Ticket không tồn tại")
             
-        if user["role"] != "admin" and ticket["user_id"] != user_id:
-            raise HTTPException(status_code=403, detail="Không có quyền phản hồi Ticket này")
+        if ticket["status"] == "resolved":
+            raise HTTPException(status_code=400, detail="Không thể phản hồi. Ticket này đã được đóng.")
+            
+        # REMOVED: Ownership restriction check. Anyone can reply to an open ticket!
             
         # Process images
         image_urls = []
@@ -2758,7 +2746,8 @@ async def create_ticket_reply(
     except sqlite3.Error as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-
+    
+    
 @app.post("/api/tickets/{ticket_id}/status")
 def update_ticket_status(ticket_id: int, payload: TicketStatusUpdate, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
@@ -2775,7 +2764,10 @@ def update_ticket_status(ticket_id: int, payload: TicketStatusUpdate, db: sqlite
             
         if user["role"] != "admin" and ticket["user_id"] != payload.user_id:
             raise HTTPException(status_code=403, detail="Không có quyền cập nhật trạng thái")
-            
+        # RESTRICT TO ADMIN ONLY
+        if not user or user["role"] != "admin":
+            raise HTTPException(status_code=403, detail="Chỉ có Quản trị viên mới có quyền đóng/mở Ticket.")
+        
         cursor.execute("UPDATE tickets SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (payload.status, ticket_id))
         db.commit()
         return {"status": "success", "message": f"Cập nhật trạng thái thành công"}
@@ -3158,3 +3150,187 @@ def take_action_on_proposal(
         cursor.execute("UPDATE solution_proposals SET status = 'REJECTED' WHERE id = ?", (proposal_id,))
         db.commit()
         return {"status": "success", "message": "Yêu cầu cập nhật lời giải đã bị từ chối."}
+    
+
+# --- EDIT TICKET ---
+@app.put("/api/tickets/{ticket_id}")
+async def update_ticket(
+    ticket_id: int,
+    title: str = Form(...),
+    description: str = Form(...),
+    kept_images: str = Form("[]"),
+    images: Optional[List[UploadFile]] = File(None),
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    identity = get_authenticated_identity(authorization)
+    user_id = identity["user_id"]
+
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        cursor.execute("SELECT user_id FROM tickets WHERE id = ?", (ticket_id,))
+        ticket = cursor.fetchone()
+        
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket không tồn tại")
+        # --- NEW FREEZE CHECK ---
+        if ticket["status"] == "resolved":
+            raise HTTPException(status_code=400, detail="Không thể sửa. Ticket này đã được đóng.")
+        # ------------------------
+        if user["role"] != "admin" and ticket["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="Không có quyền sửa Ticket này")
+            
+        try:
+            final_images = json.loads(kept_images)
+        except:
+            final_images = []
+            
+        if images is not None:
+            for image in images:
+                if image.filename:
+                    ext = image.filename.split('.')[-1]
+                    filename = f"ticket_{uuid.uuid4()}.{ext}"
+                    file_path = os.path.join("storage", "tickets", filename)
+                    with open(file_path, "wb") as f:
+                        f.write(await image.read())
+                    final_images.append(f"/tickets_media/{filename}")
+                    
+        image_url_db = json.dumps(final_images) if final_images else None
+        
+        cursor.execute(
+            "UPDATE tickets SET title = ?, description = ?, image_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (title.strip(), description.strip(), image_url_db, ticket_id)
+        )
+        db.commit()
+        return {"status": "success", "message": "Cập nhật Ticket thành công"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- DELETE TICKET ---
+@app.delete("/api/tickets/{ticket_id}")
+def delete_ticket(ticket_id: int, authorization: Optional[str] = Header(None), db: sqlite3.Connection = Depends(get_db)):
+    identity = get_authenticated_identity(authorization)
+    user_id = identity["user_id"]
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        cursor.execute("SELECT user_id FROM tickets WHERE id = ?", (ticket_id,))
+        ticket = cursor.fetchone()
+        
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket không tồn tại")
+        # --- NEW FREEZE CHECK ---
+        if ticket["status"] == "resolved":
+            raise HTTPException(status_code=400, detail="Không thể xóa. Vui lòng mở lại Ticket trước.")
+        # ------------------------
+        if user["role"] != "admin" and ticket["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="Không có quyền xóa Ticket này")
+            
+        cursor.execute("DELETE FROM ticket_replies WHERE ticket_id = ?", (ticket_id,))
+        cursor.execute("DELETE FROM tickets WHERE id = ?", (ticket_id,))
+        db.commit()
+        return {"status": "success", "message": "Xóa Ticket thành công"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- EDIT REPLY ---
+@app.put("/api/tickets/replies/{reply_id}")
+async def update_ticket_reply(
+    reply_id: int,
+    message: str = Form(""),
+    kept_images: str = Form("[]"),
+    images: Optional[List[UploadFile]] = File(None),
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    identity = get_authenticated_identity(authorization)
+    user_id = identity["user_id"]
+
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        cursor.execute("SELECT user_id, ticket_id FROM ticket_replies WHERE id = ?", (reply_id,))
+        reply = cursor.fetchone()
+        
+        if not reply:
+            raise HTTPException(status_code=404, detail="Reply không tồn tại")
+        
+        # --- NEW FREEZE CHECK ---
+        cursor.execute("SELECT status FROM tickets WHERE id = ?", (reply["ticket_id"],))
+        ticket = cursor.fetchone()
+        if ticket and ticket["status"] == "resolved":
+            raise HTTPException(status_code=400, detail="Không thể sửa phản hồi. Ticket này đã được đóng.")
+        # ------------------------
+
+        if user["role"] != "admin" and reply["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="Không có quyền sửa Reply này")
+            
+        try:
+            final_images = json.loads(kept_images)
+        except:
+            final_images = []
+            
+        if images is not None:
+            for image in images:
+                if image.filename:
+                    ext = image.filename.split('.')[-1]
+                    filename = f"reply_{uuid.uuid4()}.{ext}"
+                    file_path = os.path.join("storage", "tickets", filename)
+                    with open(file_path, "wb") as f:
+                        f.write(await image.read())
+                    final_images.append(f"/tickets_media/{filename}")
+                    
+        image_url_db = json.dumps(final_images) if final_images else None
+        
+        if not message.strip() and not image_url_db:
+             raise HTTPException(status_code=400, detail="Reply không thể trống hoàn toàn")
+
+        cursor.execute(
+            "UPDATE ticket_replies SET message = ?, image_url = ? WHERE id = ?",
+            (message.strip(), image_url_db, reply_id)
+        )
+        cursor.execute("UPDATE tickets SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (reply["ticket_id"],))
+        db.commit()
+        return {"status": "success", "message": "Cập nhật Reply thành công"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- DELETE REPLY ---
+@app.delete("/api/tickets/replies/{reply_id}")
+def delete_ticket_reply(reply_id: int, authorization: Optional[str] = Header(None), db: sqlite3.Connection = Depends(get_db)):
+    identity = get_authenticated_identity(authorization)
+    user_id = identity["user_id"]
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        cursor.execute("SELECT user_id, ticket_id FROM ticket_replies WHERE id = ?", (reply_id,))
+        reply = cursor.fetchone()
+        
+        if not reply:
+            raise HTTPException(status_code=404, detail="Reply không tồn tại")
+
+        # --- NEW FREEZE CHECK ---
+        cursor.execute("SELECT status FROM tickets WHERE id = ?", (reply["ticket_id"],))
+        ticket = cursor.fetchone()
+        if ticket and ticket["status"] == "resolved":
+            raise HTTPException(status_code=400, detail="Không thể xóa phản hồi. Ticket này đã được đóng.")
+        # ------------------------
+
+        if user["role"] != "admin" and reply["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="Không có quyền xóa Reply này")
+            
+        cursor.execute("DELETE FROM ticket_replies WHERE id = ?", (reply_id,))
+        cursor.execute("UPDATE tickets SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (reply["ticket_id"],))
+        db.commit()
+        return {"status": "success", "message": "Xóa Reply thành công"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

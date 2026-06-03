@@ -26,3 +26,30 @@ Describes how end-users create support tickets and attach images, and how admini
 - Extended the ticket reply flow to support `multipart/form-data` requests.
 - Authorized replies securely via the JWT `Authorization` header instead of raw JSON `user_id`.
 - Added image upload capabilities (`List[UploadFile]`) for responses within the conversation thread.
+
+## 2026-06-03 (Update 4)
+
+### Change Summary
+- Added full CRUD (Edit/Delete) functionality for Tickets and Ticket Replies.
+- Allowed users to remove specific old images and append new images during edits via `kept_images` JSON arrays.
+- Restricted the "Mark as Resolved" and "Re-open" status toggle actions to `admin` roles only.
+
+### Impact
+- Standardizes community management expectations. Users have full control over their content, while administrators retain exclusive authority over ticket lifecycle closures.
+
+## 2026-06-03 (Update 5)
+
+### Change Summary
+- Implemented "Ticket Freeze" logic. When a ticket's status is set to `resolved`, it becomes completely immutable.
+- Prevented end-users and admins from adding replies, updating content, or deleting the ticket/replies while in a resolved state.
+
+### Impact
+- Forces administrators to explicitly reopen a ticket (`status = open`) before any further destructive actions or communications can take place.
+
+## 2026-06-03 (Update 6)
+
+### Change Summary
+- Transformed Support Tickets from a private helpdesk into a public community issue tracker.
+- All authenticated users can now view all tickets and their associated conversation threads.
+- All authenticated users can post replies to any open ticket to assist others.
+- Edit and Delete operations remain strictly restricted to the original author or an administrator.

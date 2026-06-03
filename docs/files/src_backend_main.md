@@ -120,3 +120,31 @@ Changing the `@app` router variables can break the Vite Frontend proxy if not al
 
 ### Impact
 - Administrators and Users can seamlessly exchange screenshots back-and-forth natively within a ticket thread.
+
+## 2026-06-03 (Update 6)
+
+### Change Summary
+- Added `PUT /api/tickets/{ticket_id}` and `DELETE /api/tickets/{ticket_id}`.
+- Added `PUT /api/tickets/replies/{reply_id}` and `DELETE /api/tickets/replies/{reply_id}`.
+- Refactored `POST /api/tickets/{ticket_id}/status` to strictly enforce `admin` role checks.
+
+### Impact
+- Image editing handles partial file retention securely without overwriting unmodified assets. 
+- Prevents end-users from force-closing open investigations.
+
+## 2026-06-03 (Update 7)
+
+### Change Summary
+- Added `status == "resolved"` checks to all ticket POST, PUT, and DELETE endpoints.
+- Added cross-reference checks to reply PUT and DELETE endpoints to verify the parent ticket status.
+
+### Impact
+- Enforces data integrity on closed support tickets.
+
+## 2026-06-03 (Update 8)
+
+### Change Summary
+- Removed `user_id` ownership isolation checks from `GET /api/tickets`, `GET /api/tickets/{ticket_id}`, and `POST /api/tickets/{ticket_id}/replies`.
+
+### Impact
+- Standard users now receive the full array of global tickets, allowing them to participate in public debugging/support discussions.
