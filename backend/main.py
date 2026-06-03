@@ -1878,12 +1878,7 @@ def create_problem_detailedly(step_id: int, db: sqlite3.Connection = Depends(get
         raise HTTPException(status_code=500, detail=f"Prompt formatting error: {str(e)}")
 
     ai_raw_response = ask_question(repo_url, question_prompt)
-    with open("debug_ai_response.txt", "w", encoding="utf-8") as debug_file:
-        debug_file.write(ai_raw_response)
-    
     ai_raw_response = fix_create_detailed_response(ai_raw_response)
-    with open("debug_ai_response_fixed.txt", "w", encoding="utf-8") as debug_file:
-        debug_file.write(ai_raw_response)
     try:
         raw_json_data = parse_and_repair_json(ai_raw_response)
         raw_json_data = validate_and_ensure_complete_materials(raw_json_data)
