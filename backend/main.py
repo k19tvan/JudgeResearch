@@ -217,6 +217,11 @@ class BlogCreate(BaseModel):
     content: str
     author_id: int
 
+class BlogUpdate(BaseModel):
+    title: str
+    content: str
+    user_id: int
+
 class CommentCreate(BaseModel):
     content: str
     user_id: int
@@ -1503,6 +1508,91 @@ def reject_problem(problem_id: int, payload: AdminActionPayload, db: sqlite3.Con
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
+# 3.5. Change a published problem from public to private
+@app.post("/api/problems/{problem_id}/private")
+def make_problem_private(
+    problem_id: int,
+    payload: RequestApprovalPayload,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        cursor.execute("SELECT author_id, is_public FROM problems WHERE id = ?", (problem_id,))
+        problem = cursor.fetchone()
+        if not problem:
+            raise HTTPException(status_code=404, detail="Problem not found")
+            
+        role = user["role"]
+        author_id = problem["author_id"]
+        
+        if role != "admin" and (role != "contributor" or author_id != payload.user_id):
+            raise HTTPException(
+                status_code=403, 
+                detail="Unauthorized. Only admins or the problem author (contributor) can make this problem private."
+            )
+            
+        cursor.execute(
+            "UPDATE problems SET is_public = 0 WHERE id = ?",
+            (problem_id,)
+        )
+        db.commit()
+        return {"status": "success", "message": "Problem is now private"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+# 3.6. Change an approved private problem back to public
+@app.post("/api/problems/{problem_id}/public")
+def make_problem_public(
+    problem_id: int,
+    payload: RequestApprovalPayload,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        cursor.execute("SELECT author_id, request_status, is_public FROM problems WHERE id = ?", (problem_id,))
+        problem = cursor.fetchone()
+        if not problem:
+            raise HTTPException(status_code=404, detail="Problem not found")
+            
+        role = user["role"]
+        author_id = problem["author_id"]
+        request_status = problem["request_status"]
+        
+        if role != "admin":
+            if role != "contributor" or author_id != payload.user_id:
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Unauthorized. Only admins or the problem author can make this problem public."
+                )
+            if request_status != "APPROVED":
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Cannot make problem public directly. You must request Admin approval first."
+                )
+            
+        cursor.execute(
+            "UPDATE problems SET is_public = 1 WHERE id = ?",
+            (problem_id,)
+        )
+        db.commit()
+        return {"status": "success", "message": "Problem is now public"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+
 # 4. Admin lấy danh sách toàn bộ các bài tập đang chờ duyệt (Pending Queue)
 @app.get("/api/problems/pending-requests")
 def get_pending_requests(admin_id: int, db: sqlite3.Connection = Depends(get_db)):
@@ -2429,6 +2519,11 @@ def create_blog(payload: BlogCreate, db: sqlite3.Connection = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Title and content cannot be empty")
     cursor = db.cursor()
     try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.author_id,))
+        user = cursor.fetchone()
+        if not user or user["role"] not in ("admin", "contributor"):
+            raise HTTPException(status_code=403, detail="Unauthorized. Only admins or contributors can create blog posts.")
+
         cursor.execute(
             "INSERT INTO blogs (title, content, author_id) VALUES (?, ?, ?)",
             (payload.title.strip(), payload.content.strip(), payload.author_id)
@@ -2438,6 +2533,73 @@ def create_blog(payload: BlogCreate, db: sqlite3.Connection = Depends(get_db)):
     except sqlite3.Error as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/blogs/{blog_id}")
+def update_blog(blog_id: int, payload: BlogUpdate, db: sqlite3.Connection = Depends(get_db)):
+    if not payload.title.strip() or not payload.content.strip():
+        raise HTTPException(status_code=400, detail="Title and content cannot be empty")
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        cursor.execute("SELECT author_id FROM blogs WHERE id = ?", (blog_id,))
+        blog = cursor.fetchone()
+        if not blog:
+            raise HTTPException(status_code=404, detail="Blog not found")
+            
+        if user["role"] != "admin" and (user["role"] != "contributor" or blog["author_id"] != payload.user_id):
+            raise HTTPException(status_code=403, detail="Unauthorized. You can only edit your own blogs.")
+            
+        cursor.execute(
+            "UPDATE blogs SET title = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (payload.title.strip(), payload.content.strip(), blog_id)
+        )
+        db.commit()
+        
+        cursor.execute("""
+            SELECT b.id, b.title, b.content, b.author_id, b.created_at, b.updated_at,
+                   u.display_name AS author_name, u.avatar_url AS author_avatar,
+                   COALESCE((SELECT SUM(vote_type) FROM votes WHERE blog_id = b.id), 0) AS score,
+                   COALESCE((SELECT vote_type FROM votes WHERE blog_id = b.id AND user_id = ?), 0) AS user_vote
+            FROM blogs b
+            JOIN users u ON b.author_id = u.id
+            WHERE b.id = ?
+        """, (payload.user_id, blog_id))
+        updated_row = cursor.fetchone()
+        return {"status": "success", "message": "Blog updated successfully", "data": dict(updated_row)}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/blogs/{blog_id}")
+def delete_blog(blog_id: int, user_id: int, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        cursor.execute("SELECT author_id FROM blogs WHERE id = ?", (blog_id,))
+        blog = cursor.fetchone()
+        if not blog:
+            raise HTTPException(status_code=404, detail="Blog not found")
+            
+        if user["role"] != "admin" and (user["role"] != "contributor" or blog["author_id"] != user_id):
+            raise HTTPException(status_code=403, detail="Unauthorized. You can only delete your own blogs.")
+            
+        cursor.execute("DELETE FROM comments WHERE blog_id = ?", (blog_id,))
+        cursor.execute("DELETE FROM votes WHERE blog_id = ?", (blog_id,))
+        cursor.execute("DELETE FROM blogs WHERE id = ?", (blog_id,))
+        db.commit()
+        return {"status": "success", "message": "Blog deleted successfully"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # 5.1 & 5.2 & 5.3: Quản lý Thảo luận / Bình luận (Comments)

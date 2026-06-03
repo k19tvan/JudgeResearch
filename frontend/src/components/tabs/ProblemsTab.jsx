@@ -14,6 +14,8 @@ export default function ProblemsTab({ isLight = false }) {
   const [filterMode, setFilterMode] = useState("all");
   const [editingProblemId, setEditingProblemId] = useState(null);
   const [deletingProblem, setDeletingProblem] = useState(null);
+  const [privatingProblem, setPrivatingProblem] = useState(null);
+  const [successMessage, setSuccessMessage] = useState("");
 
   const [formData, setFormData] = useState({
     name: "",
@@ -107,15 +109,15 @@ export default function ProblemsTab({ isLight = false }) {
         setFormData({
           name: result.data.name || "",
           source: problem.source || "",
-          statement_markdown: result.data.statement_markdown || "",
-          theory_markdown: result.data.theory_markdown || "",
-          tutorial_markdown: result.data.tutorial_markdown || "",
-          solution_markdown: result.data.solution_markdown || "",
-          coding_markdown: result.data.coding_markdown || "",
-          checker_markdown: result.data.checker_markdown || "",
+          statement_markdown: (result.data.statement_markdown || "").replace(/\r\n/g, "\n"),
+          theory_markdown: (result.data.theory_markdown || "").replace(/\r\n/g, "\n"),
+          tutorial_markdown: (result.data.tutorial_markdown || "").replace(/\r\n/g, "\n"),
+          solution_markdown: (result.data.solution_markdown || "").replace(/\r\n/g, "\n"),
+          coding_markdown: (result.data.coding_markdown || "").replace(/\r\n/g, "\n"),
+          checker_markdown: (result.data.checker_markdown || "").replace(/\r\n/g, "\n"),
         });
         setEditingProblemId(problem.id);
-        
+
         try {
           const tcResponse = await fetch(`http://localhost:21081/api/problems/${problem.id}/testcases`);
           const tcResult = await tcResponse.json();
@@ -154,7 +156,7 @@ export default function ProblemsTab({ isLight = false }) {
         body: JSON.stringify({ user_id: currentUserId })
       });
       if (response.ok) {
-        alert("Problem deleted successfully!");
+        setSuccessMessage("Problem deleted successfully!");
         await loadProblems();
       } else {
         const result = await response.json();
@@ -279,6 +281,63 @@ export default function ProblemsTab({ isLight = false }) {
       }
     }
   };
+
+  const handleMakePrivateDirect = (e, problem) => {
+    e.stopPropagation();
+    setPrivatingProblem(problem);
+  };
+
+  const handleMakePublicDirect = async (e, problem) => {
+    e.stopPropagation();
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`http://localhost:21081/api/problems/${problem.id}/public`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: currentUserId })
+      });
+      const result = await response.json();
+      if (response.ok) {
+        alert("Problem successfully changed to public!");
+        await loadProblems();
+      } else {
+        alert(`Error: ${result.detail || "Action failed"}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to make problem public.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+
+  const confirmMakePrivate = async () => {
+    if (!privatingProblem) return;
+    const problemId = privatingProblem.id;
+    setPrivatingProblem(null);
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`http://localhost:21081/api/problems/${problemId}/private`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: currentUserId })
+      });
+      const result = await response.json();
+      if (response.ok) {
+        alert("Problem successfully changed to private!");
+        await loadProblems();
+      } else {
+        alert(`Error: ${result.detail || "Action failed"}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to make problem private.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
 
   const handleAdminApproveDirectly = async (e, problemId, action) => {
     e.stopPropagation();
@@ -630,7 +689,47 @@ export default function ProblemsTab({ isLight = false }) {
                     {/* Request Status */}
                     <td style={{ padding: "14px 10px", width: 150, textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
                       {isPrivate ? (
-                        role === "admin" ? (
+                        reqStatus === "APPROVED" ? (
+                          role === "admin" || (role === "contributor" && problem.author_id === currentUserId) ? (
+                            <button
+                              type="button"
+                              onClick={(e) => handleMakePublicDirect(e, problem)}
+                              title="Click to make this problem Public immediately"
+                              style={{
+                                background: isLight ? "#fffbeb" : "rgba(245,158,11,0.08)",
+                                border: `1px solid ${isLight ? "#fde68a" : "rgba(245,158,11,0.2)"}`,
+                                color: isLight ? "#d97706" : "#fbbf24",
+                                padding: "4px 8px", borderRadius: 4,
+                                fontSize: 9, fontWeight: 700, cursor: "pointer",
+                                textTransform: "uppercase",
+                                transition: "all 0.15s ease",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = isLight ? "#ecfdf5" : "rgba(16,185,129,0.15)";
+                                e.currentTarget.style.color = isLight ? "#065f46" : "#34d399";
+                                e.currentTarget.style.borderColor = isLight ? "#6ee7b7" : "rgba(16,185,129,0.3)";
+                                e.currentTarget.textContent = "Publish";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = isLight ? "#fffbeb" : "rgba(245,158,11,0.08)";
+                                e.currentTarget.style.color = isLight ? "#d97706" : "#fbbf24";
+                                e.currentTarget.style.borderColor = isLight ? "#fde68a" : "rgba(245,158,11,0.2)";
+                                e.currentTarget.textContent = "Private";
+                              }}
+                            >
+                              Private
+                            </button>
+                          ) : (
+                            <span style={{
+                              display: "inline-flex", padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                              background: isLight ? "#fffbeb" : "rgba(245,158,11,0.08)",
+                              color: isLight ? "#d97706" : "#fbbf24",
+                              border: `1px solid ${isLight ? "#fde68a" : "rgba(245,158,11,0.2)"}`,
+                            }}>
+                              Private
+                            </span>
+                          )
+                        ) : role === "admin" ? (
                           <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
                             <button
                               type="button"
@@ -683,7 +782,45 @@ export default function ProblemsTab({ isLight = false }) {
                           )
                         )
                       ) : (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: t.accent, textTransform: "uppercase" }}>Published</span>
+                        role === "admin" || (role === "contributor" && problem.author_id === currentUserId) ? (
+                          <button
+                            type="button"
+                            onClick={(e) => handleMakePrivateDirect(e, problem)}
+                            title="Click to make this problem Private"
+                            style={{
+                              background: isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)",
+                              border: `1px solid ${isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)"}`,
+                              color: isLight ? "#065f46" : "#34d399",
+                              padding: "4px 8px", borderRadius: 4,
+                              fontSize: 9, fontWeight: 700, cursor: "pointer",
+                              textTransform: "uppercase",
+                              transition: "all 0.15s ease",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = isLight ? "#fee2e2" : "rgba(239,68,68,0.15)";
+                              e.currentTarget.style.color = isLight ? "#991b1b" : "#f87171";
+                              e.currentTarget.style.borderColor = isLight ? "#fca5a5" : "rgba(239,68,68,0.3)";
+                              e.currentTarget.textContent = "Make Private";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)";
+                              e.currentTarget.style.color = isLight ? "#065f46" : "#34d399";
+                              e.currentTarget.style.borderColor = isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)";
+                              e.currentTarget.textContent = "Published";
+                            }}
+                          >
+                            Published
+                          </button>
+                        ) : (
+                          <span style={{
+                            display: "inline-flex", padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                            background: isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)",
+                            color: isLight ? "#065f46" : "#34d399",
+                            border: `1px solid ${isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)"}`,
+                          }}>
+                            Published
+                          </span>
+                        )
                       )}
                     </td>
 
@@ -1133,6 +1270,100 @@ export default function ProblemsTab({ isLight = false }) {
                 }}
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* PRIVATE CONFIRMATION PORTAL */}
+      {privatingProblem && createPortal(
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1300, display: "flex",
+          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          padding: 16
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400, background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 12, padding: 20, boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+            fontFamily: "'Inter var', 'Inter', sans-serif", color: t.textPrimary,
+            position: "relative"
+          }}>
+            {/* orange top stripe */}
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "#f59e0b"
+            }} />
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: isLight ? "#d97706" : "#fbbf24" }}>
+              Make Problem Private
+            </h4>
+            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
+              Are you sure you want to make the problem <strong>{privatingProblem.name}</strong> Private? This will hide it from the public list.
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setPrivatingProblem(null)}
+                className="tk-ghost"
+                style={{
+                  background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary,
+                  borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer"
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmMakePrivate}
+                style={{
+                  background: "#f59e0b", border: "none", color: "#fff",
+                  borderRadius: 6, padding: "6px 14px", fontSize: 11, fontWeight: 700, cursor: "pointer"
+                }}
+              >
+                Make Private
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {successMessage && createPortal(
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1400, display: "flex",
+          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          padding: 16
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400, background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 12, padding: 20, boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+            fontFamily: "'Inter var', 'Inter', sans-serif", color: t.textPrimary,
+            position: "relative"
+          }}>
+            {/* green top stripe */}
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "#10b981"
+            }} />
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: "#10b981" }}>
+              Success
+            </h4>
+            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
+              {successMessage}
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setSuccessMessage("")}
+                style={{
+                  background: "#10b981", border: "none", color: "#fff",
+                  borderRadius: 6, padding: "6px 16px", fontSize: 11, fontWeight: 700, cursor: "pointer"
+                }}
+              >
+                OK
               </button>
             </div>
           </div>
