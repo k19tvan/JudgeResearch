@@ -1,6 +1,7 @@
 import datetime
 import secrets
 import sqlite3
+from google import genai
 import jwt
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Header, Response, Cookie
 from fastapi.staticfiles import StaticFiles
@@ -28,7 +29,7 @@ import re
 import os
 import requests  
 import json
-from prompts.prompt import get_problems_from_repo_prompt, feedback_prompt, create_detailedly_prompt
+from prompts.prompt import get_problems_from_repo_prompt, feedback_prompt, create_detailedly_prompt, validate_problem_from_repo_prompt
 from dotenv import load_dotenv
 from json_repair import repair_json
 import tempfile
@@ -54,6 +55,9 @@ storage_path = "storage/"
 deepwiki_url = "http://localhost:21082"
 load_dotenv()
 EMAIL_FORMAT_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+api_key = os.getenv("GEMINI_API_KEY")
+client = genai.Client()
 
 def ensure_schema_migrations():
     conn = sqlite3.connect("database/database.db", check_same_thread=False)
@@ -332,20 +336,15 @@ def parse_and_repair_json(raw_text: str) -> dict:
 def clean_json_response(raw_text: str) -> str:
     if not raw_text:
         raise ValueError("Empty AI response")
+
     text = raw_text.strip()
-    m = re.search(r"```json\s*(.*?)\s*```", text, flags=re.S | re.I)
+
+    m = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.S | re.I)
     if m:
         return m.group(1).strip()
-    m = re.search(r"```(?:[^\n]*)\n(.*?)\n```", text, flags=re.S)
-    if m:
-        return m.group(1).strip()
-    m = re.search(r"(\{(?:.|\n)*?\}|\[(?:.|\n)*?\])", text, flags=re.S)
-    if m:
-        return m.group(1).strip()
-    try:
-        return repair_json(text)
-    except Exception:
-        raise ValueError("Unable to extract JSON payload")
+
+    return text
+
 
 def compare_approx(v1: Any, v2: Any, tolerance: float = 1e-6) -> bool:
     if isinstance(v1, list) and isinstance(v2, list):
@@ -371,9 +370,17 @@ def validate_email_format(email: str) -> Optional[str]:
         return "Email must be a valid format."
     return None
 
+def fix_problem_from_repo_response(raw_ai_response: str) -> dict:
+    prompt = validate_problem_from_repo_prompt.format(last_ai_response=raw_ai_response)
+    ai_response_fixed = client.models.generate_content(
+        model="gemini-3.1-flash-lite",
+        config={
+            "system_instruction": "You are a strict JSON Validator and Senior Deep Learning Engineer. Your task is to ingest a raw, potentially malformed or technically inaccurate JSON string representing a roadmap of programming tasks, repair it, and output a standardized, production-ready JSON array. Follow the objectives and constraints outlined in the prompt meticulously."
+        },
+        contents=f"text:{prompt}"
+    ).text
 
-
-
+    return ai_response_fixed
 
 
 
@@ -1538,9 +1545,25 @@ def get_problems_from_repo(payload: ProblemsFromRepo, db: sqlite3.Connection = D
         )
 
         ai_raw_response = ask_question(payload.repository_url, question_prompt)
-        json_string = clean_json_response(ai_raw_response)
-        parsed_problems = [ProposedProblem(**item) for item in json.loads(json_string)]
-
+        try:
+            json_string = clean_json_response(ai_raw_response)
+            parsed_problems = [ProposedProblem(**item) for item in json.loads(json_string)]
+        except Exception as e:
+            print(f"[Error] Initial AI response parsing failed: {str(e)}")
+            num_tries = 3
+            for _ in range(num_tries):
+                try:
+                    print(f"[Info] Attempting to fix AI response format... (Attempt {_ + 1}/{num_tries})")
+                    ai_raw_response_fixed = fix_problem_from_repo_response(ai_raw_response)
+                    json_string = clean_json_response(ai_raw_response_fixed)
+                    parsed_problems = [ProposedProblem(**item) for item in json.loads(json_string)]
+                    print(f"[Info] Successfully fixed AI response on attempt {_ + 1}")
+                    break
+                except json.JSONDecodeError:
+                    print(f"[Error] AI response still has invalid JSON format. Attempting to fix again... (Attempt {_ + 1}/{num_tries})")
+                    if (_ == num_tries - 1):
+                        raise HTTPException(status_code=502, detail="AI generated an invalid format after multiple attempts.")
+                    
         cursor = db.cursor()
         cursor.execute("""
             INSERT INTO draft_problem_sessions (roadmap_name, repository_url, user_id, problems_json, num_test_cases, status)
@@ -1701,6 +1724,7 @@ def finalize_session(payload: FinalizeSessionRequest, db: sqlite3.Connection = D
         problems_list = json.loads(session["problems_json"])
         
         try:
+            # Tạo roadmap nháp
             cursor.execute("""
                 INSERT INTO roadmaps (user_id, name, repository_url, level, num_test_cases, status)
                 VALUES (?, ?, ?, ?, ?, 'draft')
@@ -1710,30 +1734,23 @@ def finalize_session(payload: FinalizeSessionRequest, db: sqlite3.Connection = D
             created_problems = []
             for index, prob in enumerate(problems_list, start=1):
                 name = prob["title"].strip()
-                name_slug = normalize_problem_name(name)
-                problem_folder = f"{storage_path}problems/{name_slug}"
-                os.makedirs(problem_folder, exist_ok=True)
+                description = prob.get("description", "").strip()
+                target_module = prob.get("target_module", "").strip()
                 
-                statement_path = os.path.join(problem_folder, "statement.md")
-                with open(statement_path, "w", encoding="utf-8") as f:
-                    f.write(f"# {name}\n\n*Problem details are being initialized by AI. Please click 'Create Detailedly' to complete.*")
-                
+                # CHỈ thêm vào roadmap_problems với problem_id = NULL. 
+                # Không gọi INSERT INTO problems ở đây để tránh hiển thị sớm trên tab Problems.
                 cursor.execute("""
-                    INSERT INTO problems (name, source, statement_path, author_id, is_public, request_status)
-                    VALUES (?, ?, ?, ?, 0, 'NONE')
-                """, (name, f"Roadmap: {payload.roadmap_title}", statement_path, user_id))
-                problem_id = cursor.lastrowid
-                
-                cursor.execute("""
-                    INSERT INTO roadmap_problems (roadmap_id, problem_id, name, order_index, status)
-                    VALUES (?, ?, ?, ?, 'pending')
-                """, (roadmap_id, problem_id, name, index))
+                    INSERT INTO roadmap_problems (roadmap_id, problem_id, name, order_index, status, description, target_module)
+                    VALUES (?, NULL, ?, ?, 'pending', ?, ?)
+                """, (roadmap_id, name, index, description, target_module))
+                step_id = cursor.lastrowid
                 
                 created_problems.append({
-                    "problem_id": problem_id,
+                    "step_id": step_id,
                     "name": name,
                     "order_index": index,
-                    "statement_path": statement_path
+                    "description": description,
+                    "target_module": target_module
                 })
                 
             cursor.execute("UPDATE draft_problem_sessions SET status = 'finalized' WHERE id = ?", (payload.session_id,))
@@ -1741,7 +1758,7 @@ def finalize_session(payload: FinalizeSessionRequest, db: sqlite3.Connection = D
             
             return {
                 "status": "success", 
-                "message": "Roadmap created successfully. Problems initialized as private drafts.",
+                "message": "Roadmap created successfully. Steps initialized as private drafts.",
                 "data": {
                     "roadmap_id": roadmap_id,
                     "name": payload.roadmap_title,
@@ -2312,56 +2329,6 @@ def delete_problem(problem_id: int, payload: ProblemDeletePayload, db: sqlite3.C
     cursor.execute("DELETE FROM problems WHERE id = ?", (problem_id,))
     db.commit()
     return {"status": "success", "message": "Problem deleted successfully"}
-
-@app.post("/api/problems/problems_from_repo")
-def get_problems_from_repo_post(payload: ProblemsFromRepo, db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
-    user_row = cursor.fetchone()
-    if not user_row or user_row["role"] not in ("admin", "contributor"):
-        raise HTTPException(status_code=403, detail="Unauthorized. Access denied to non-creators.")
-    
-    try:
-        owner, repo = get_repo_owner_and_name(payload.repository_url)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    cache_data = check_wiki_cache(owner, repo)  
-    if not cache_data: 
-        print(f"[Warning] Repo {owner}/{repo} wasn't cached.")
-
-    try:
-        question_prompt = get_problems_from_repo_prompt.format(
-            repository_url=payload.repository_url,
-            level=payload.level,
-            framework=payload.framework or 'Auto-detect',
-            user_note=payload.user_note or 'None'
-        )
-
-        ai_raw_response = ask_question(payload.repository_url, question_prompt)
-        json_string = clean_json_response(ai_raw_response)
-        parsed_problems = [ProposedProblem(**item) for item in json.loads(json_string)]
-
-        cursor.execute("""
-            INSERT INTO draft_problem_sessions (roadmap_name, repository_url, user_id, problems_json, num_test_cases, status)
-            VALUES (?, ?, ?, ?, ?, 'draft')
-        """, (payload.roadmap_name, payload.repository_url, payload.user_id, json_string, payload.num_test_cases))
-        
-        db.commit()
-        session_id = cursor.lastrowid
-        
-        return ProblemsFromRepoResponse(
-            status="success",
-            message="Generated proposed problem list successfully.",
-            data=ProblemsFromRepoDataResponse(
-                session_id=session_id,
-                repository_url=payload.repository_url,
-                roadmap_name=payload.roadmap_name,
-                proposed_problems=parsed_problems
-            )
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/blogs")
 def get_blogs(user_id: Optional[int] = None, db: sqlite3.Connection = Depends(get_db)):

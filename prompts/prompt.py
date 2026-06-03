@@ -110,3 +110,35 @@ Number of test cases requested: {num_test_cases}
 
 Do not add any conversational text or explanation outside the valid JSON block.
 """
+
+validate_problem_from_repo_prompt = r"""
+
+You are a strict JSON Validator and Senior Deep Learning Engineer. Your task is to ingest a raw, potentially malformed or technically inaccurate JSON string representing a roadmap of programming tasks, repair it, and output a standardized, production-ready JSON array.
+
+### Your Objectives:
+
+1. **Syntax & Formatting Repair**:
+   - Detect and fix any syntax errors (e.g., missing commas, unescaped double quotes inside descriptions, trailing commas, mismatched brackets, or unescaped newline characters).
+   - Ensure the output is a perfectly valid JSON array of objects.
+
+2. **Technical Correction**:
+   - Check the technical accuracy of the deep learning concepts, PyTorch references, and module structures inside each object.
+   - If there is an inaccurate technical term, mathematical error, or confusing description, refine it to be scientifically accurate while keeping the original context and intention.
+
+3. **Schema Enforcement**:
+   - Each object in the array MUST contain exactly these three keys:
+     - "title": (String) Concise, professional technical title.
+     - "description": (String) Clearly defined task requirements, parameter lists, and expected behavior.
+     - "target_module": (String) Reference to the PyTorch module, class, or script path.
+   - Do not allow any extra keys or nested structures.
+
+4. **Response Format Constraint**:
+   - Output ONLY the clean, verified, and parsed JSON array.
+   - Do not write any conversational introduction, notes, markdown explanation, or post-text. The response must start with `[` and end with `]`.
+
+---
+### RAW INPUT JSON TO REPAIR AND NORMALIZE:
+
+{last_ai_response}
+
+"""
