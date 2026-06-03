@@ -36,6 +36,8 @@ function Avatar({ name = "?" }) {
   const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
   const palette = ["#0891b2","#059669","#7c3aed","#db2777","#d97706","#2563eb"];
   const hue = palette[name.charCodeAt(0) % palette.length];
+  
+
   return (
     <div style={{
       width: 28, height: 28, borderRadius: "50%",
@@ -188,8 +190,9 @@ export default function TicketsTab({ isLight = false }) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-
+  const [imageFiles, setImageFiles] = useState([]);
   const userId = localStorage.getItem("user_id");
+  const [replyImageFiles, setReplyImageFiles] = useState([]); // <--- ADD THIS
 
   const loadTickets = async () => {
     try {
@@ -212,34 +215,66 @@ export default function TicketsTab({ isLight = false }) {
   const handleCreateTicket = async (e) => {
     e.preventDefault();
     if (!title.trim() || !description.trim()) { alert("Please fill in both fields."); return; }
+    
+    const formData = new FormData();
+    formData.append("title", title);
+    formData.append("description", description);
+    
+    // Append multiple files to the same "images" key
+    imageFiles.forEach((file) => {
+      formData.append("images", file);
+    });
+
+    const token = localStorage.getItem("access_token");
+
     try {
       const r = await fetch("http://localhost:21081/api/tickets", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: Number(userId), title, description }),
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}` // <--- ADD AUTH HEADER TO FIX FK ERROR
+        },
+        body: formData,
       });
-      if (r.ok) { setTitle(""); setDescription(""); setShowForm(false); loadTickets(); }
-    } catch (e) { console.error(e); }
+      if (r.ok) { 
+        setTitle(""); setDescription(""); setImageFiles([]); setShowForm(false); loadTickets(); 
+      } else {
+        const err = await r.json();
+        alert("Failed to create ticket: " + (err.detail || "Unknown error"));
+      }
+    } catch (e) { console.error(e); alert("Network error occurred."); }
   };
 
   const handlePostReply = async (e) => {
     e.preventDefault();
-    if (!replyText.trim()) { alert("Reply cannot be empty."); return; }
+    if (!replyText.trim() && replyImageFiles.length === 0) { 
+      alert("Reply cannot be empty."); return; 
+    }
+    
+    const formData = new FormData();
+    formData.append("message", replyText);
+    
+    replyImageFiles.forEach((file) => {
+      formData.append("images", file);
+    });
+
+    const token = localStorage.getItem("access_token");
+
     try {
       const r = await fetch(`http://localhost:21081/api/tickets/${selectedTicket.id}/replies`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: Number(userId), message: replyText }),
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        },
+        body: formData,
       });
-      if (r.ok) { setReplyText(""); loadTicketDetail(selectedTicket.id); }
-    } catch (e) { console.error(e); }
-  };
-
-  const handleToggleStatus = async (statusValue) => {
-    try {
-      const r = await fetch(`http://localhost:21081/api/tickets/${selectedTicket.id}/status`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: Number(userId), status: statusValue }),
-      });
-      if (r.ok) { loadTicketDetail(selectedTicket.id); loadTickets(); }
+      if (r.ok) { 
+        setReplyText(""); 
+        setReplyImageFiles([]); // Reset images
+        loadTicketDetail(selectedTicket.id); 
+      } else {
+        const err = await r.json();
+        alert("Failed to send reply: " + (err.detail || "Unknown error"));
+      }
     } catch (e) { console.error(e); }
   };
 
@@ -429,6 +464,28 @@ export default function TicketsTab({ isLight = false }) {
                     placeholder="Include error codes, tracebacks, or steps to reproduce…"
                     style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
                   />
+                </div>
+                <div>
+                  <label style={{
+                    display: "block", fontSize: 11, fontWeight: 600,
+                    color: t.textSecondary, letterSpacing: "0.06em",
+                    textTransform: "uppercase", marginBottom: 6,
+                  }}>
+                    Attach Screenshot (Optional)
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple // <--- ALLOW MULTIPLE
+                    onChange={e => setImageFiles(Array.from(e.target.files))} // <--- SAVE AS ARRAY
+                    style={{ fontSize: 12, color: t.textSecondary }}
+                  />
+                  {/* Optional: Show selected file count */}
+                  {imageFiles.length > 0 && (
+                    <div style={{ fontSize: 11, color: t.accent, marginTop: 4 }}>
+                      {imageFiles.length} file(s) selected
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 4 }}>
                   <button
@@ -621,7 +678,43 @@ export default function TicketsTab({ isLight = false }) {
                     whiteSpace: "pre-wrap",
                   }}>
                     {selectedTicket.description}
+                    {selectedTicket.image_url && (() => {
+                    let urls = [];
+                    try { 
+                      urls = JSON.parse(selectedTicket.image_url); 
+                    } catch { 
+                      urls = [selectedTicket.image_url]; // Fallback for older tickets
+                    }
+                    
+                    return (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 16 }}>
+                        {urls.map((url, idx) => (
+                          <img 
+                            key={idx}
+                            src={`http://localhost:21081${url}`} 
+                            alt={`Attachment ${idx + 1}`} 
+                            style={{ 
+                              maxWidth: "100%", 
+                              maxHeight: "300px", 
+                              borderRadius: 8, 
+                              border: `1px solid ${t.border}`,
+                              objectFit: "cover"
+                            }}
+                          />
+                        ))}
+                      </div>
+                    );
+                  })()}
                   </div>
+                  {/* {selectedTicket.image_url && (
+                    <div style={{ marginTop: 16 }}>
+                      <img 
+                        src={`http://localhost:21081${selectedTicket.image_url}`} 
+                        alt="Ticket attachment" 
+                        style={{ maxWidth: "100%", borderRadius: 8, border: `1px solid ${t.border}` }}
+                      />
+                    </div> */}
+                  {/* )} */}
                 </div>
               </div>
 
@@ -750,6 +843,27 @@ export default function TicketsTab({ isLight = false }) {
                             <span style={{ marginLeft: isAdmin ? 8 : 0 }}>
                               {reply.message}
                             </span>
+                            {/* --- NEW: RENDER REPLY IMAGES --- */}
+                            {reply.image_url && (() => {
+                              let urls = [];
+                              try { urls = JSON.parse(reply.image_url); } 
+                              catch { urls = [reply.image_url]; }
+                              
+                              return (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: reply.message ? 12 : 0, marginLeft: isAdmin ? 8 : 0 }}>
+                                  {urls.map((url, i) => (
+                                    <img 
+                                      key={i}
+                                      src={`http://localhost:21081${url}`} 
+                                      alt="Reply attachment" 
+                                      style={{ maxWidth: "100%", maxHeight: "250px", borderRadius: 6, objectFit: "cover", border: `1px solid ${t.border}` }}
+                                    />
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                            {/* --------------------------------- */}
+
                           </div>
                         </div>
                       </div>
@@ -798,6 +912,24 @@ export default function TicketsTab({ isLight = false }) {
                         display: "flex", justifyContent: "space-between", alignItems: "center",
                         background: isLight ? "#f8fafc" : "rgba(255,255,255,0.02)",
                       }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <span style={{ fontSize: 11, color: t.textMuted }}>Markdown supported</span>
+                          <label style={{ cursor: "pointer", fontSize: 11, color: t.textSecondary, display: "flex", alignItems: "center", gap: 5 }}>
+                            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                            </svg>
+                            Attach
+                            <input 
+                              type="file" multiple accept="image/*" 
+                              style={{ display: "none" }} 
+                              value={replyImageFiles.length === 0 ? "" : undefined} // <-- ADD THIS LINE
+                              onChange={e => setReplyImageFiles(Array.from(e.target.files))} 
+                            />
+                          </label>
+                          {replyImageFiles.length > 0 && (
+                            <span style={{ fontSize: 11, color: t.accent }}>{replyImageFiles.length} file(s)</span>
+                          )}
+                        </div>
                         <span style={{ fontSize: 11, color: t.textMuted }}>
                           Markdown supported
                         </span>

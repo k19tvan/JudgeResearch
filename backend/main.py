@@ -37,9 +37,10 @@ import sys
 
 os.makedirs("database", exist_ok=True)
 os.makedirs("storage/problems", exist_ok=True)
-os.makedirs("storage/avatars", exist_ok=True)
+os.makedirs("storage/tickets", exist_ok=True)
 
 app = FastAPI()
+app.mount("/tickets_media", StaticFiles(directory="storage/tickets"), name="tickets_media")
 app.mount("/avatars", StaticFiles(directory="storage/avatars"), name="avatars")
 
 app.add_middleware(
@@ -63,7 +64,20 @@ def ensure_schema_migrations():
         draft_columns = {row[1] for row in cursor.fetchall()}
         if draft_columns and "research_title" not in draft_columns:
             cursor.execute("ALTER TABLE draft_problem_sessions ADD COLUMN research_title TEXT")
+
+        cursor.execute("PRAGMA table_info(tickets)")
+        ticket_columns = {row[1] for row in cursor.fetchall()}
+        if ticket_columns and "image_url" not in ticket_columns:
+            cursor.execute("ALTER TABLE tickets ADD COLUMN image_url TEXT")
+
+        # --- NEW: Add image_url to ticket_replies ---
+        cursor.execute("PRAGMA table_info(ticket_replies)")
+        reply_columns = {row[1] for row in cursor.fetchall()}
+        if reply_columns and "image_url" not in reply_columns:
+            cursor.execute("ALTER TABLE ticket_replies ADD COLUMN image_url TEXT")
+            
         conn.commit()
+
     finally:
         conn.close()
 
@@ -2574,20 +2588,46 @@ def handle_vote(payload: VoteRequest, db: sqlite3.Connection = Depends(get_db)):
 
 # 5.5: Hệ thống Quản lý Ticket Hỗ trợ
 @app.post("/api/tickets")
-def create_ticket(payload: TicketCreate, db: sqlite3.Connection = Depends(get_db)):
-    if not payload.title.strip() or not payload.description.strip():
-        raise HTTPException(status_code=400, detail="Vui lòng điền tiêu đề và mô tả sự cố")
+async def create_ticket(
+    title: str = Form(...),
+    description: str = Form(...),
+    images: Optional[List[UploadFile]] = File(None),
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    # 1. Securely get user_id from the Auth token
+    identity = get_authenticated_identity(authorization)
+    user_id = identity["user_id"]
+
+    # 2. Process multiple images
+    image_urls = []
+    if images is not None:
+        for image in images:
+            # Skip empty file submissions
+            if image.filename:
+                ext = image.filename.split('.')[-1]
+                filename = f"ticket_{uuid.uuid4()}.{ext}"
+                file_path = os.path.join("storage", "tickets", filename)
+                
+                with open(file_path, "wb") as f:
+                    f.write(await image.read())
+                    
+                image_urls.append(f"/tickets_media/{filename}")
+
+    # Convert the list of URLs to a JSON string for SQLite storage
+    image_url_db = json.dumps(image_urls) if image_urls else None
+
     cursor = db.cursor()
     try:
         cursor.execute(
-            "INSERT INTO tickets (user_id, title, description, status) VALUES (?, ?, ?, 'open')",
-            (payload.user_id, payload.title.strip(), payload.description.strip())
+            "INSERT INTO tickets (user_id, title, description, status, image_url) VALUES (?, ?, ?, 'open', ?)",
+            (user_id, title.strip(), description.strip(), image_url_db)
         )
         db.commit()
-        return {"status": "success", "message": "Tạo Ticket hỗ trợ thành công", "id": cursor.lastrowid}
+        return {"status": "success", "message": "Ticket created", "id": cursor.lastrowid}
     except sqlite3.Error as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 @app.get("/api/tickets")
 def list_tickets(user_id: int, db: sqlite3.Connection = Depends(get_db)):
@@ -2601,7 +2641,7 @@ def list_tickets(user_id: int, db: sqlite3.Connection = Depends(get_db)):
         # Admin xem tất cả, User/Contributor xem ticket cá nhân
         if user["role"] == "admin":
             cursor.execute("""
-                SELECT t.id, t.user_id, t.title, t.description, t.status, t.created_at, t.updated_at,
+                SELECT t.id, t.user_id, t.title, t.description, t.status, t.image_url, t.created_at, t.updated_at,
                        u.display_name AS creator_name
                 FROM tickets t
                 JOIN users u ON t.user_id = u.id
@@ -2609,7 +2649,7 @@ def list_tickets(user_id: int, db: sqlite3.Connection = Depends(get_db)):
             """)
         else:
             cursor.execute("""
-                SELECT t.id, t.user_id, t.title, t.description, t.status, t.created_at, t.updated_at,
+                SELECT t.id, t.user_id, t.title, t.description, t.status, t.image_url, t.created_at, t.updated_at,
                        u.display_name AS creator_name
                 FROM tickets t
                 JOIN users u ON t.user_id = u.id
@@ -2629,8 +2669,9 @@ def get_ticket_detail(ticket_id: int, user_id: int, db: sqlite3.Connection = Dep
         if not user:
             raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
             
+        # 1. Correct query for the MAIN TICKET
         cursor.execute("""
-            SELECT t.id, t.user_id, t.title, t.description, t.status, t.created_at, t.updated_at,
+            SELECT t.id, t.user_id, t.title, t.description, t.status, t.image_url, t.created_at, t.updated_at,
                    u.display_name AS creator_name
             FROM tickets t
             JOIN users u ON t.user_id = u.id
@@ -2643,8 +2684,9 @@ def get_ticket_detail(ticket_id: int, user_id: int, db: sqlite3.Connection = Dep
         if user["role"] != "admin" and ticket["user_id"] != user_id:
             raise HTTPException(status_code=403, detail="Bạn không có quyền xem Ticket này")
             
+        # 2. Correct query for the REPLIES (now correctly includes r.image_url)
         cursor.execute("""
-            SELECT r.id, r.user_id, r.message, r.created_at,
+            SELECT r.id, r.user_id, r.message, r.image_url, r.created_at,
                    u.display_name AS replier_name, u.role AS replier_role, u.avatar_url AS replier_avatar
             FROM ticket_replies r
             JOIN users u ON r.user_id = u.id
@@ -2664,28 +2706,51 @@ def get_ticket_detail(ticket_id: int, user_id: int, db: sqlite3.Connection = Dep
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/tickets/{ticket_id}/replies")
-def create_ticket_reply(ticket_id: int, payload: TicketReplyCreate, db: sqlite3.Connection = Depends(get_db)):
-    if not payload.message.strip():
+async def create_ticket_reply(
+    ticket_id: int, 
+    message: str = Form(""),
+    images: Optional[List[UploadFile]] = File(None),
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    if not message.strip() and not images:
         raise HTTPException(status_code=400, detail="Nội dung phản hồi không thể để trống")
+        
+    identity = get_authenticated_identity(authorization)
+    user_id = identity["user_id"]
+
     cursor = db.cursor()
     try:
-        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
+        # Check permissions
+        cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
         user = cursor.fetchone()
-        if not user:
-            raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
-            
+        
         cursor.execute("SELECT user_id FROM tickets WHERE id = ?", (ticket_id,))
         ticket = cursor.fetchone()
         if not ticket:
             raise HTTPException(status_code=404, detail="Ticket không tồn tại")
             
-        if user["role"] != "admin" and ticket["user_id"] != payload.user_id:
+        if user["role"] != "admin" and ticket["user_id"] != user_id:
             raise HTTPException(status_code=403, detail="Không có quyền phản hồi Ticket này")
             
+        # Process images
+        image_urls = []
+        if images is not None:
+            for image in images:
+                if image.filename:
+                    ext = image.filename.split('.')[-1]
+                    filename = f"reply_{uuid.uuid4()}.{ext}"
+                    file_path = os.path.join("storage", "tickets", filename)
+                    with open(file_path, "wb") as f:
+                        f.write(await image.read())
+                    image_urls.append(f"/tickets_media/{filename}")
+
+        image_url_db = json.dumps(image_urls) if image_urls else None
+            
         cursor.execute("""
-            INSERT INTO ticket_replies (ticket_id, user_id, message)
-            VALUES (?, ?, ?)
-        """, (ticket_id, payload.user_id, payload.message.strip()))
+            INSERT INTO ticket_replies (ticket_id, user_id, message, image_url)
+            VALUES (?, ?, ?, ?)
+        """, (ticket_id, user_id, message.strip(), image_url_db))
         
         cursor.execute("UPDATE tickets SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (ticket_id,))
         db.commit()
