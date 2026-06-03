@@ -935,7 +935,9 @@ export default function ProblemsTab({ isLight = false }) {
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
-                  <label style={labelStyle}>Input Zip File (.zip) {editingProblemId && "(optional, overwrites manager)"}</label>
+                  <label style={labelStyle}>
+                    Input Zip {editingProblemId ? "(Optional, overwrites manager)" : "File (.zip)"}
+                  </label>
                   <input
                     type="file"
                     accept=".zip"
@@ -944,7 +946,9 @@ export default function ProblemsTab({ isLight = false }) {
                   />
                 </div>
                 <div>
-                  <label style={labelStyle}>Output Zip File (.zip) {editingProblemId && "(optional, overwrites manager)"}</label>
+                  <label style={labelStyle}>
+                    Output Zip {editingProblemId ? "(Optional, overwrites manager)" : "File (.zip)"}
+                  </label>
                   <input
                     type="file"
                     accept=".zip"

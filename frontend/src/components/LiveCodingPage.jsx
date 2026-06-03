@@ -1014,7 +1014,7 @@ export default function LiveCodingPage() {
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
-                  <label style={labelStyle}>Input Zip File (.zip) (optional, overwrites manager)</label>
+                  <label style={labelStyle}>Input Zip (Optional, overwrites manager)</label>
                   <input
                     type="file"
                     accept=".zip"
@@ -1023,7 +1023,7 @@ export default function LiveCodingPage() {
                   />
                 </div>
                 <div>
-                  <label style={labelStyle}>Output Zip File (.zip) (optional, overwrites manager)</label>
+                  <label style={labelStyle}>Output Zip (Optional, overwrites manager)</label>
                   <input
                     type="file"
                     accept=".zip"
