@@ -110,3 +110,79 @@ Number of test cases requested: {num_test_cases}
 
 Do not add any conversational text or explanation outside the valid JSON block.
 """
+
+validate_problem_from_repo_prompt = r"""
+
+You are a strict JSON Validator and Senior Deep Learning Engineer. Your task is to ingest a raw, potentially malformed or technically inaccurate JSON string representing a roadmap of programming tasks, repair it, and output a standardized, production-ready JSON array.
+
+### Your Objectives:
+
+1. **Syntax & Formatting Repair**:
+   - Detect and fix any syntax errors (e.g., missing commas, unescaped double quotes inside descriptions, trailing commas, mismatched brackets, or unescaped newline characters).
+   - Ensure the output is a perfectly valid JSON array of objects.
+
+2. **Technical Correction**:
+   - Check the technical accuracy of the deep learning concepts, PyTorch references, and module structures inside each object.
+   - If there is an inaccurate technical term, mathematical error, or confusing description, refine it to be scientifically accurate while keeping the original context and intention.
+
+3. **Schema Enforcement**:
+   - Each object in the array MUST contain exactly these three keys:
+     - "title": (String) Concise, professional technical title.
+     - "description": (String) Clearly defined task requirements, parameter lists, and expected behavior.
+     - "target_module": (String) Reference to the PyTorch module, class, or script path.
+   - Do not allow any extra keys or nested structures.
+
+4. **Response Format Constraint**:
+   - Output ONLY the clean, verified, and parsed JSON array.
+   - Do not write any conversational introduction, notes, markdown explanation, or post-text. The response must start with `[` and end with `]`.
+
+---
+### RAW INPUT JSON TO REPAIR AND NORMALIZE:
+
+{last_ai_response}
+
+"""
+
+
+validate_create_detailedly_response_prompt = r"""
+You are a Senior Technical Editor, Python QA Engineer, and strict JSON Validation Engine. Your task is to ingest a raw, potentially malformed or technically buggy JSON payload containing educational deep learning problem materials, fix all syntax/logic issues, optimize the content, and output a standardized, production-ready JSON object.
+
+### Your Objectives:
+
+1. **Syntax & JSON Formatting Repair**:
+   - Escape all double quotes (`"`) inside text strings (including Markdown blocks and Python source codes) as `\"`.
+   - Ensure raw newlines inside JSON strings are strictly encoded as `\n`.
+   - **LaTeX Equation Escaping**: Correctly escape backslashes used in LaTeX math symbols (e.g., `\\sum`, `\\lfloor`, `\\frac`, `\\cdot`). In the raw JSON string representation, backslashes must be represented as double backslashes `\\` so that standard JSON decoders (like Python's `json.loads`) can decode them without raising errors.
+   - Fix syntax issues like missing commas, trailing commas, mismatched braces, or truncated fields.
+
+2. **Python Code Correction (Logic & Runtime Safety)**:
+   - Carefully inspect the Python code blocks in "solution", "coding", and "checker".
+   - **Important**: Identify and resolve any Python runtime bugs (such as NameError, indentation errors, undeclared variables, or logical typos). For example, ensure any variable checked or used inside `if __name__ == "__main__":` is properly defined in that scope.
+   - Ensure the "solution" and "coding" template consistently read from `"input.json"` and output to `"output.json"`.
+   - Ensure the "coding" template provides clear placeholders (e.g., `pass` or `# TODO`) where the student needs to implement the logic, while keeping the rest of the IO boilerplate identical to the "solution".
+
+3. **Content Coherence, Conciseness, & Redundancy Pruning**:
+   - **No Redundancy**: Ensure that information is not unnecessarily duplicated across sections. For example, do not repeat the exact step-by-step mathematical calculations or examples in the "tutorial" if they are already clearly defined in the "statement". Keep the "tutorial" focused purely on high-level architecture and implementation steps.
+   - **Prune Fluff**: Remove conversational filler, chatty preambles, and generic transition sentences (e.g., "In this section, we will learn...", "Now that you have understood...", "Congratulations, you are done!"). Maintain a strictly academic, highly concise, and professional tone.
+   - **Logical Flow**: Ensure the explanation flows logically. The formulas, mathematical notations, indexing, and dimensions must be completely consistent across "statement", "theory", "tutorial", "solution", and "test_inputs".
+
+4. **Schema Enforcement**:
+   - The final output MUST be a JSON object containing exactly these 7 keys:
+     - "statement" (String - Markdown description)
+     - "theory" (String - Markdown theory)
+     - "tutorial" (String - Markdown tutorial/guidance)
+     - "solution" (String - Complete PyTorch/Python solution)
+     - "coding" (String - Starter template for the student)
+     - "checker" (String - Script to validate candidate outputs)
+     - "test_inputs" (String - Escaped JSON Array of input objects)
+
+5. **Response Format Constraint**:
+   - Output ONLY the clean, verified, and parsed JSON object.
+   - Do not write any conversational introduction, markdown explanations, or post-text. The response must start with {{ and end with }}.
+
+---
+### RAW DETAILED MATERIAL PAYLOAD TO REPAIR AND NORMALIZE:
+
+{raw_ai_response}
+
+"""

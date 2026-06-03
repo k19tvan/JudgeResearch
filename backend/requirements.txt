@@ -8,3 +8,6 @@ python-dotenv
 requests
 json-repair
 python-multipart
+torch
+numpy
+google-genai
