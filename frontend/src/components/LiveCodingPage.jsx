@@ -329,30 +329,41 @@ export default function LiveCodingPage() {
   };
 
   const handleSubmitCode = () => {
-    (async () => {
-      setIsConsoleRunning(true);
-      setConsoleOutput("Submitting... Evaluating on hidden dataset...\n");
-      try {
-        const resp = await submitProblem(problemId, currentUserId, code);
-        const parts = [];
-        parts.push(`Final status: ${resp.status}`);
-        parts.push(`Score: ${resp.score}`);
-        parts.push(`Submission ID: ${resp.submission_id}`);
-        parts.push('Test results:');
-        resp.results.forEach((r) => {
-          parts.push(`  TC ${r.testcase}: ${r.status} (${JSON.stringify(r.user_output)})`);
-        });
-        setConsoleOutput(parts.join('\n'));
-
-        if (activeContentTab === "submissions") {
-          loadSubmissionsList();
-        }
-      } catch (err) {
-        setConsoleOutput(`Error: ${err.message}`);
-      } finally {
-        setIsConsoleRunning(false);
+      // Tiền điều kiện: Kiểm tra tính hợp lệ của bài nộp (mã nguồn không rỗng)
+      if (!code || !code.trim()) {
+        alert("Nộp bài thất bại: Mã nguồn không được phép bỏ trống.");
+        return;
       }
-    })();
+
+      (async () => {
+        setIsConsoleRunning(true);
+        setConsoleOutput("Submitting... Evaluating on hidden dataset...\n");
+        try {
+          const resp = await submitProblem(problemId, currentUserId, code);
+          const parts = [];
+          parts.push(`Final status: ${resp.status}`);
+          parts.push(`Score: ${resp.score}`);
+          parts.push(`Submission ID: ${resp.submission_id}`);
+          parts.push('Test results:');
+          resp.results.forEach((r) => {
+            parts.push(`  TC ${r.testcase}: ${r.status} (${JSON.stringify(r.user_output)})`);
+          });
+          setConsoleOutput(parts.join('\n'));
+
+          // Hiển thị thông báo nộp bài thành công kèm điểm số đạt được trên giao diện
+          alert(`Nộp bài thành công!\nĐiểm số đạt được: ${resp.score}/100\nTrạng thái chung: ${resp.status.toUpperCase()}`);
+
+          if (activeContentTab === "submissions") {
+            loadSubmissionsList();
+          }
+        } catch (err) {
+          setConsoleOutput(`Error: ${err.message}`);
+          // Quá trình nộp bài thất bại do sự cố máy chủ hoặc lỗi không xác định
+          alert(`Nộp bài thất bại. Vui lòng thử lại sau.\nChi tiết: ${err.message}`);
+        } finally {
+          setIsConsoleRunning(false);
+        }
+      })();
   };
 
   const handleLoadSubmittedCode = (submittedCode) => {

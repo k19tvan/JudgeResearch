@@ -2802,3 +2802,127 @@ def admin_update_user(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
     return {"status": "success", "message": "User updated successfully by admin"}
+
+
+
+# Usecase : Fetch all submission history (Unified endpoint for Admin and Users)
+@app.get("/api/submissions")
+def get_all_submissions(
+    user_id: Optional[int] = None,
+    problem_id: Optional[int] = None,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    current_user_id = None
+    role = "user"
+    
+    # Xác định danh tính qua token authorization nếu có
+    if authorization:
+        try:
+            identity = get_authenticated_identity(authorization)
+            current_user_id = identity.get("user_id")
+            if current_user_id:
+                cursor.execute("SELECT role FROM users WHERE id = ?", (current_user_id,))
+                user_row = cursor.fetchone()
+                if user_row:
+                    role = user_row["role"]
+        except Exception:
+            pass
+
+    # Nếu không có token nhưng có tham số user_id từ query (hỗ trợ môi trường test/local)
+    if not current_user_id and user_id:
+        current_user_id = user_id
+        cursor.execute("SELECT role FROM users WHERE id = ?", (current_user_id,))
+        user_row = cursor.fetchone()
+        if user_row:
+            role = user_row["role"]
+
+    query = """
+        SELECT s.id, s.user_id, s.problem_id, s.submitted_code, s.status, s.score, s.test_results, s.created_at,
+               u.username, u.display_name, u.avatar_url,
+               p.name AS problem_name
+        FROM submissions s
+        JOIN users u ON s.user_id = u.id
+        JOIN problems p ON s.problem_id = p.id
+    """
+    params = []
+    where_clauses = []
+
+    # Phân quyền: Chỉ có Admin mới được xem toàn bộ hệ thống
+    if role != "admin":
+        if current_user_id:
+            where_clauses.append("s.user_id = ?")
+            params.append(current_user_id)
+        else:
+            return {"status": "success", "data": []}
+    else:
+        # SỬA: Nếu là Admin, chỉ lọc theo user_id khi tham số truyền lên thực sự khác với ID của Admin (để tránh nhận nhầm ID của Admin làm bộ lọc mặc định)
+        if user_id and user_id != current_user_id:
+            where_clauses.append("s.user_id = ?")
+            params.append(user_id)
+
+    if problem_id:
+        where_clauses.append("s.problem_id = ?")
+        params.append(problem_id)
+
+    if where_clauses:
+        query += " WHERE " + " AND ".join(where_clauses)
+
+    query += " ORDER BY s.created_at DESC"
+
+    try:
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        submissions_list = []
+        for row in rows:
+            sub_dict = dict(row)
+            if sub_dict.get("test_results"):
+                try:
+                    sub_dict["test_results"] = json.loads(sub_dict["test_results"])
+                except Exception:
+                    sub_dict["test_results"] = []
+            submissions_list.append(sub_dict)
+        return {"status": "success", "data": submissions_list}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
+
+
+# Usecase : Fetch submission history for a specific user id
+@app.get("/api/users/{user_id}/submissions")
+def get_user_submissions_by_user_id(
+    user_id: int,
+    problem_id: Optional[int] = None,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    query = """
+        SELECT s.id, s.user_id, s.problem_id, s.submitted_code, s.status, s.score, s.test_results, s.created_at,
+               u.username, u.display_name, u.avatar_url,
+               p.name AS problem_name
+        FROM submissions s
+        JOIN users u ON s.user_id = u.id
+        JOIN problems p ON s.problem_id = p.id
+        WHERE s.user_id = ?
+    """
+    params = [user_id]
+    if problem_id:
+        query += " AND s.problem_id = ?"
+        params.append(problem_id)
+    query += " ORDER BY s.created_at DESC"
+
+    try:
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        submissions_list = []
+        for row in rows:
+            sub_dict = dict(row)
+            if sub_dict.get("test_results"):
+                try:
+                    sub_dict["test_results"] = json.loads(sub_dict["test_results"])
+                except Exception:
+                    sub_dict["test_results"] = []
+            submissions_list.append(sub_dict)
+        return {"status": "success", "data": submissions_list}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
