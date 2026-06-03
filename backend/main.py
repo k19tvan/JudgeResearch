@@ -38,9 +38,11 @@ import sys
 os.makedirs("database", exist_ok=True)
 os.makedirs("storage/problems", exist_ok=True)
 os.makedirs("storage/avatars", exist_ok=True)
+os.makedirs("storage/blogs", exist_ok=True)
 
 app = FastAPI()
 app.mount("/avatars", StaticFiles(directory="storage/avatars"), name="avatars")
+app.mount("/blogs-img", StaticFiles(directory="storage/blogs"), name="blogs_img")
 
 app.add_middleware(
     CORSMiddleware,
@@ -2585,6 +2587,29 @@ def delete_blog(blog_id: int, user_id: int, db: sqlite3.Connection = Depends(get
     except sqlite3.Error as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blogs/upload-image")
+def upload_blog_image(image: UploadFile = File(...)):
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if image.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Image must be JPEG, PNG, WEBP, or GIF")
+    
+    file_bytes = image.file.read()
+    max_size = 5 * 1024 * 1024 # 5MB
+    if len(file_bytes) > max_size:
+        raise HTTPException(status_code=400, detail="Image file size must be <= 5MB")
+        
+    ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+    ext = ext_map.get(image.content_type, "jpg")
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    
+    filepath = os.path.join("storage", "blogs", filename)
+    with open(filepath, "wb") as out_file:
+        out_file.write(file_bytes)
+        
+    image.file.seek(0)
+    image_url = f"http://localhost:21081/blogs-img/{filename}"
+    return {"status": "success", "url": image_url}
 
 
 

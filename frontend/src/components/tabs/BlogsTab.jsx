@@ -1,5 +1,5 @@
 // src/components/tabs/BlogsTab.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
 function Avatar({ name = "?" }) {
@@ -15,6 +15,207 @@ function Avatar({ name = "?" }) {
       fontFamily: "'DM Mono', monospace",
     }}>
       {initials}
+    </div>
+  );
+}
+
+function convertMarkdownToHtml(text) {
+  if (!text) return "";
+  let html = text;
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, url) => {
+    return `<img src="${url}" style="max-width: 100%; border-radius: 8px; margin: 8px 0; display: block;" alt="${alt || "Image"}" />`;
+  });
+  return html;
+}
+
+function stripHtml(html) {
+  if (!html) return "";
+  const converted = convertMarkdownToHtml(html);
+  try {
+    const doc = new DOMParser().parseFromString(converted, 'text/html');
+    return doc.body.textContent || doc.body.innerText || "";
+  } catch (e) {
+    return converted.replace(/<[^>]*>/g, "");
+  }
+}
+
+function isContentEmpty(html) {
+  if (!html) return true;
+  if (html.includes("<img")) return false;
+  const text = html.replace(/<[^>]*>/g, "").trim();
+  return text === "";
+}
+
+function RichEditor({ textareaId, value, onChange, placeholder, style, t, isLight }) {
+  const editorRef = useRef(null);
+  const savedRangeRef = useRef(null);
+
+  useEffect(() => {
+    if (editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value || "";
+    }
+  }, [value]);
+
+  const saveSelection = () => {
+    if (window.getSelection) {
+      const sel = window.getSelection();
+      if (sel.rangeCount > 0) {
+        savedRangeRef.current = sel.getRangeAt(0);
+      }
+    }
+  };
+
+  const restoreSelection = () => {
+    if (savedRangeRef.current && window.getSelection) {
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(savedRangeRef.current);
+    }
+  };
+
+  const handleInput = (e) => {
+    saveSelection();
+    if (onChange) {
+      onChange(e.target.innerHTML);
+    }
+  };
+
+  const handleKeyUp = () => {
+    saveSelection();
+  };
+
+  const handleMouseUp = () => {
+    saveSelection();
+  };
+
+  const handleImageUpload = async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Only image files are allowed!");
+      return;
+    }
+    const formData = new FormData();
+    formData.append("image", file);
+    try {
+      const response = await fetch("http://localhost:21081/api/blogs/upload-image", {
+        method: "POST",
+        body: formData,
+      });
+      const result = await response.json();
+      if (response.ok && result.url) {
+        if (editorRef.current) {
+          editorRef.current.focus();
+        }
+        restoreSelection();
+        const imgHtml = `<img src="${result.url}" style="max-width: 100%; border-radius: 8px; margin: 8px 0; display: block;" alt="Uploaded Image" />`;
+        document.execCommand("insertHTML", false, imgHtml);
+        if (onChange && editorRef.current) {
+          onChange(editorRef.current.innerHTML);
+        }
+      } else {
+        alert(result.detail || "Image upload failed.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error uploading image: " + err.message);
+    }
+  };
+
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    let containsImage = false;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        containsImage = true;
+        e.preventDefault();
+        const file = items[i].getAsFile();
+        handleImageUpload(file);
+      }
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.type.startsWith("image/")) {
+        handleImageUpload(file);
+      }
+    }
+  };
+
+  const isEmpty = !value || (value.replace(/<[^>]*>/g, "").trim() === "" && !value.includes("<img"));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div
+        ref={editorRef}
+        contentEditable
+        onInput={handleInput}
+        onKeyUp={handleKeyUp}
+        onMouseUp={handleMouseUp}
+        onPaste={handlePaste}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        className="tk-input rich-editor"
+        id={textareaId}
+        data-placeholder={placeholder}
+        data-empty={isEmpty ? "true" : "false"}
+        style={{
+          ...style,
+          overflowY: "auto",
+          outline: "none",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          display: "block",
+          minHeight: style.minHeight || 160,
+          height: "auto",
+        }}
+      />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+        <button
+          type="button"
+          onClick={() => {
+            const fileInput = document.getElementById(`${textareaId}-file-input`);
+            if (fileInput) fileInput.click();
+          }}
+          style={{
+            background: "transparent",
+            border: `1px solid ${t.border}`,
+            color: t.accent,
+            borderRadius: 5,
+            padding: "4px 8px",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+          className="tk-ghost"
+        >
+          <span>+</span> Add Image
+        </button>
+        <input
+          id={`${textareaId}-file-input`}
+          type="file"
+          accept="image/*"
+          onChange={(e) => {
+            if (e.target.files && e.target.files[0]) {
+              handleImageUpload(e.target.files[0]);
+            }
+          }}
+          style={{ display: "none" }}
+        />
+        <span style={{ fontSize: 10, color: t.textMuted }}>
+          (Or drag & drop, or Ctrl+V to paste)
+        </span>
+      </div>
     </div>
   );
 }
@@ -39,6 +240,8 @@ export default function BlogsTab({ isLight = false }) {
   const [editBlogContent, setEditBlogContent] = useState("");
   const [blogToDelete, setBlogToDelete] = useState(null);
   const [successMessage, setSuccessMessage] = useState("");
+
+
 
   const userId = localStorage.getItem("user_id");
   const userRole = localStorage.getItem("user_role") || "user";
@@ -85,7 +288,7 @@ export default function BlogsTab({ isLight = false }) {
 
   const handleCreateBlog = async (e) => {
     e.preventDefault();
-    if (!newTitle.trim() || !newContent.trim()) {
+    if (!newTitle.trim() || isContentEmpty(newContent)) {
       alert("Tiêu đề và nội dung không được để trống!");
       return;
     }
@@ -115,7 +318,7 @@ export default function BlogsTab({ isLight = false }) {
 
   const handleUpdateBlog = async (e) => {
     e.preventDefault();
-    if (!editBlogTitle.trim() || !editBlogContent.trim()) {
+    if (!editBlogTitle.trim() || isContentEmpty(editBlogContent)) {
       alert("Title and content cannot be empty!");
       return;
     }
@@ -577,6 +780,20 @@ export default function BlogsTab({ isLight = false }) {
         }
         .tk-primary:hover { background: ${t.accentDark} !important; }
         .tk-ghost:hover { background: ${isLight ? "#f1f5f9" : "rgba(255,255,255,0.05)"} !important; }
+        
+        .rich-editor[data-empty="true"]::before {
+          content: attr(data-placeholder);
+          color: ${t.textMuted};
+          opacity: 0.7;
+          display: block;
+          pointer-events: none;
+        }
+        .rich-editor img {
+          max-width: 100%;
+          border-radius: 8px;
+          margin: 8px 0;
+          display: block;
+        }
       `}</style>
 
       {/* ── Page Header ── */}
@@ -683,12 +900,14 @@ export default function BlogsTab({ isLight = false }) {
             </div>
             <div>
               <label style={labelStyle}>Content</label>
-              <textarea
-                required rows={6} placeholder="Enter detailed technical share content..."
+              <RichEditor
+                textareaId="create-blog-content"
                 value={newContent}
-                onChange={(e) => setNewContent(e.target.value)}
-                className="tk-input"
-                style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+                onChange={setNewContent}
+                placeholder="Enter detailed technical share content..."
+                style={{ ...inputStyle, minHeight: 180 }}
+                t={t}
+                isLight={isLight}
               />
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
@@ -761,12 +980,14 @@ export default function BlogsTab({ isLight = false }) {
                     </div>
                     <div>
                       <label style={labelStyle}>Content</label>
-                      <textarea
-                        required rows={5}
+                      <RichEditor
+                        textareaId="edit-blog-content-list"
                         value={editBlogContent}
-                        onChange={(e) => setEditBlogContent(e.target.value)}
-                        className="tk-input"
-                        style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+                        onChange={setEditBlogContent}
+                        placeholder="Enter detailed technical share content..."
+                        style={{ ...inputStyle, minHeight: 160 }}
+                        t={t}
+                        isLight={isLight}
                       />
                     </div>
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: "auto", paddingTop: 8 }}>
@@ -871,7 +1092,7 @@ export default function BlogsTab({ isLight = false }) {
                               setActiveDropdownBlogId(null);
                               setEditingBlog(b);
                               setEditBlogTitle(b.title);
-                              setEditBlogContent(b.content);
+                              setEditBlogContent(convertMarkdownToHtml(b.content));
                             }}
                             style={{
                               background: "transparent",
@@ -925,7 +1146,7 @@ export default function BlogsTab({ isLight = false }) {
                   margin: "0 0 16px", fontSize: 12, lineHeight: 1.6, color: t.textSecondary,
                   display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden"
                 }}>
-                  {b.content}
+                  {stripHtml(b.content)}
                 </p>
 
                 <div style={{
@@ -999,12 +1220,14 @@ export default function BlogsTab({ isLight = false }) {
                 </div>
                 <div>
                   <label style={labelStyle}>Content</label>
-                  <textarea
-                    required rows={8}
+                  <RichEditor
+                    textareaId="edit-blog-content-detail"
                     value={editBlogContent}
-                    onChange={(e) => setEditBlogContent(e.target.value)}
-                    className="tk-input"
-                    style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+                    onChange={setEditBlogContent}
+                    placeholder="Enter detailed technical share content..."
+                    style={{ ...inputStyle, minHeight: 240 }}
+                    t={t}
+                    isLight={isLight}
                   />
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
@@ -1100,7 +1323,7 @@ export default function BlogsTab({ isLight = false }) {
                             setActiveDropdownBlogId(null);
                             setEditingBlog(selectedBlog);
                             setEditBlogTitle(selectedBlog.title);
-                            setEditBlogContent(selectedBlog.content);
+                            setEditBlogContent(convertMarkdownToHtml(selectedBlog.content));
                           }}
                           style={{
                             background: "transparent",
@@ -1150,12 +1373,13 @@ export default function BlogsTab({ isLight = false }) {
               <p style={{ margin: "0 0 16px", fontSize: 11, color: t.textMuted }}>
                 Author: {selectedBlog.author_name} • {new Date(selectedBlog.created_at).toLocaleString()}
               </p>
-              <p style={{
-                margin: "0 0 20px", fontSize: 13, lineHeight: 1.7, color: t.textSecondary,
-                whiteSpace: "pre-wrap", borderLeft: `3px solid ${t.accent}`, paddingLeft: 14
-              }}>
-                {selectedBlog.content}
-              </p>
+              <div
+                dangerouslySetInnerHTML={{ __html: convertMarkdownToHtml(selectedBlog.content) }}
+                style={{
+                  margin: "0 0 20px", fontSize: 13, lineHeight: 1.7, color: t.textSecondary,
+                  whiteSpace: "pre-wrap", borderLeft: `3px solid ${t.accent}`, paddingLeft: 14
+                }}
+              />
 
               <div style={{ display: "flex", alignItems: "center", gap: 10, borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
                 <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 600 }}>Helpful Article?</span>
