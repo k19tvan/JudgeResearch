@@ -149,7 +149,7 @@ __pycache__/
 *.pyc
 *.pyo
 # AI-generated documentation
-docs/
+.docs/
 # Copilot workspace files
 .github/
 .github/copilot-workspace/
