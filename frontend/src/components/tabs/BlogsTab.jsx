@@ -32,6 +32,11 @@ export default function BlogsTab({ isLight = false }) {
   const [newTitle, setNewTitle] = useState("");
   const [newContent, setNewContent] = useState("");
 
+  const [activeDropdownBlogId, setActiveDropdownBlogId] = useState(null);
+  const [editingBlog, setEditingBlog] = useState(null);
+  const [editBlogTitle, setEditBlogTitle] = useState("");
+  const [editBlogContent, setEditBlogContent] = useState("");
+
   const userId = localStorage.getItem("user_id");
   const userRole = localStorage.getItem("user_role") || "user";
 
@@ -105,6 +110,65 @@ export default function BlogsTab({ isLight = false }) {
     }
   };
 
+  const handleUpdateBlog = async (e) => {
+    e.preventDefault();
+    if (!editBlogTitle.trim() || !editBlogContent.trim()) {
+      alert("Title and content cannot be empty!");
+      return;
+    }
+    try {
+      const response = await fetch(`http://localhost:21081/api/blogs/${editingBlog.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: editBlogTitle,
+          content: editBlogContent,
+          user_id: Number(userId),
+        }),
+      });
+      const result = await response.json();
+      if (response.ok && result.status === "success") {
+        setBlogs(blogs.map(b => b.id === editingBlog.id ? result.data : b));
+        if (selectedBlog && selectedBlog.id === editingBlog.id) {
+          setSelectedBlog(result.data);
+        }
+        setEditingBlog(null);
+        setEditBlogTitle("");
+        setEditBlogContent("");
+      } else {
+        alert(result.detail || "An error occurred while updating the article.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteBlog = async (blogId) => {
+    if (!window.confirm("Are you sure you want to delete this article? This will remove all associated comments/discussions.")) return;
+    try {
+      const response = await fetch(`http://localhost:21081/api/blogs/${blogId}?user_id=${userId}`, {
+        method: "DELETE"
+      });
+      const result = await response.json();
+      if (response.ok && result.status === "success") {
+        setBlogs(blogs.filter(b => b.id !== blogId));
+        if (selectedBlog && selectedBlog.id === blogId) {
+          setSelectedBlog(null);
+          setComments([]);
+        }
+        if (editingBlog && editingBlog.id === blogId) {
+          setEditingBlog(null);
+          setEditBlogTitle("");
+          setEditBlogContent("");
+        }
+      } else {
+        alert(result.detail || "An error occurred while deleting the article.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleVote = async (targetId, type, isComment = false) => {
     const payload = {
       user_id: Number(userId),
@@ -144,7 +208,7 @@ export default function BlogsTab({ isLight = false }) {
   const handleAddComment = async (e) => {
     e.preventDefault();
     if (!newCommentContent.trim()) {
-      alert("Nội dung thảo luận không thể bỏ trống!");
+      alert("Discussion content cannot be empty!");
       return;
     }
     try {
@@ -168,7 +232,7 @@ export default function BlogsTab({ isLight = false }) {
 
   const handleAddReply = async (comment) => {
     if (!replyContent.trim()) {
-      alert("Nội dung phản hồi không thể bỏ trống!");
+      alert("Reply content cannot be empty!");
       return;
     }
     try {
@@ -194,7 +258,7 @@ export default function BlogsTab({ isLight = false }) {
 
   const handleEditComment = async (commentId) => {
     if (!editContent.trim()) {
-      alert("Nội dung bình luận không thể bỏ trống!");
+      alert("Comment content cannot be empty!");
       return;
     }
     try {
@@ -217,7 +281,7 @@ export default function BlogsTab({ isLight = false }) {
   };
 
   const handleDeleteComment = async (commentId) => {
-    if (!window.confirm("Bạn có chắc chắn muốn xóa bình luận này?")) return;
+    if (!window.confirm("Are you sure you want to delete this comment?")) return;
     try {
       const response = await fetch(`http://localhost:21081/api/comments/${commentId}/delete`, {
         method: "POST",
@@ -386,7 +450,7 @@ export default function BlogsTab({ isLight = false }) {
                         borderRadius: 5, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer"
                       }}
                     >
-                      Lưu
+                      Save
                     </button>
                     <button
                       type="button"
@@ -397,7 +461,7 @@ export default function BlogsTab({ isLight = false }) {
                         borderRadius: 5, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer"
                       }}
                     >
-                      Hủy
+                      Cancel
                     </button>
                   </div>
                 </div>
@@ -462,7 +526,7 @@ export default function BlogsTab({ isLight = false }) {
                   rows={2}
                   value={replyContent}
                   onChange={(e) => setReplyContent(e.target.value)}
-                  placeholder="Nhập nội dung phản hồi..."
+                  placeholder="Write a reply..."
                   className="tk-input"
                   style={inputStyle}
                 />
@@ -476,7 +540,7 @@ export default function BlogsTab({ isLight = false }) {
                       borderRadius: 5, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer"
                     }}
                   >
-                    Gửi phản hồi
+                    Send Reply
                   </button>
                   <button
                     type="button"
@@ -487,7 +551,7 @@ export default function BlogsTab({ isLight = false }) {
                       borderRadius: 5, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer"
                     }}
                   >
-                    Hủy
+                    Cancel
                   </button>
                 </div>
               </div>
@@ -543,22 +607,24 @@ export default function BlogsTab({ isLight = false }) {
             </p>
           </div>
 
-          <button
-            onClick={() => setShowCreateForm(!showCreateForm)}
-            className="tk-primary"
-            style={{
-              display: "flex", alignItems: "center", gap: 7,
-              background: showCreateForm ? (isLight ? "#f1f5f9" : "rgba(255,255,255,0.06)") : t.accent,
-              color: showCreateForm ? t.textSecondary : "#fff",
-              border: showCreateForm ? `1px solid ${t.border}` : "none",
-              borderRadius: 7, padding: "8px 16px",
-              fontSize: 12, fontWeight: 600, letterSpacing: "0.02em",
-              cursor: "pointer", transition: "all 0.15s",
-              boxShadow: (!showCreateForm && isLight) ? "0 1px 3px rgba(5,150,105,0.3)" : "none",
-            }}
-          >
-            {showCreateForm ? "Cancel" : "New Article"}
-          </button>
+          {(userRole === "admin" || userRole === "contributor") && (
+            <button
+              onClick={() => setShowCreateForm(!showCreateForm)}
+              className="tk-primary"
+              style={{
+                display: "flex", alignItems: "center", gap: 7,
+                background: showCreateForm ? (isLight ? "#f1f5f9" : "rgba(255,255,255,0.06)") : t.accent,
+                color: showCreateForm ? t.textSecondary : "#fff",
+                border: showCreateForm ? `1px solid ${t.border}` : "none",
+                borderRadius: 7, padding: "8px 16px",
+                fontSize: 12, fontWeight: 600, letterSpacing: "0.02em",
+                cursor: "pointer", transition: "all 0.15s",
+                boxShadow: (!showCreateForm && isLight) ? "0 1px 3px rgba(5,150,105,0.3)" : "none",
+              }}
+            >
+              {showCreateForm ? "Cancel" : "New Article"}
+            </button>
+          )}
         </div>
       ) : (
         <div style={{ marginBottom: 20 }}>
@@ -605,7 +671,7 @@ export default function BlogsTab({ isLight = false }) {
             <div>
               <label style={labelStyle}>Article Title</label>
               <input
-                type="text" required placeholder="Nhập tiêu đề..."
+                type="text" required placeholder="Enter title..."
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 className="tk-input"
@@ -615,7 +681,7 @@ export default function BlogsTab({ isLight = false }) {
             <div>
               <label style={labelStyle}>Content</label>
               <textarea
-                required rows={6} placeholder="Nhập nội dung chia sẻ kỹ thuật chi tiết..."
+                required rows={6} placeholder="Enter detailed technical share content..."
                 value={newContent}
                 onChange={(e) => setNewContent(e.target.value)}
                 className="tk-input"
@@ -653,102 +719,459 @@ export default function BlogsTab({ isLight = false }) {
       {/* ── Blogs List ── */}
       {!selectedBlog ? (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-          {blogs.map((b) => (
-            <div
-              key={b.id}
-              style={{
-                background: t.surface,
-                border: `1px solid ${t.border}`,
-                borderRadius: 12, padding: 20, display: "flex", flexDirection: "column",
-                boxShadow: t.shadow,
-              }}
-            >
-              <h3 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: t.textPrimary }}>
-                {b.title}
-              </h3>
-              <p style={{ margin: "0 0 12px", fontSize: 11, color: t.textMuted }}>
-                Tác giả: {b.author_name} • {new Date(b.created_at).toLocaleDateString()}
-              </p>
-              <p style={{
-                margin: "0 0 16px", fontSize: 12, lineHeight: 1.6, color: t.textSecondary,
-                display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden"
-              }}>
-                {b.content}
-              </p>
+          {blogs.map((b) => {
+            const canManage = userRole === "admin" || (userRole === "contributor" && b.author_id === Number(userId));
 
-              <div style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                borderTop: `1px dashed ${t.border}`, paddingTop: 14, marginTop: "auto"
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <button
-                    onClick={() => handleVote(b.id, 1)}
-                    style={{ background: "none", border: "none", color: b.user_vote === 1 ? t.accent : t.textMuted, cursor: "pointer", fontSize: 12 }}
-                  >
-                    ▲
-                  </button>
-                  <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: t.textSecondary }}>{b.score}</span>
-                  <button
-                    onClick={() => handleVote(b.id, -1)}
-                    style={{ background: "none", border: "none", color: b.user_vote === -1 ? "#ef4444" : t.textMuted, cursor: "pointer", fontSize: 12 }}
-                  >
-                    ▼
-                  </button>
-                </div>
-
-                <button
-                  onClick={() => handleSelectBlog(b)}
+            if (editingBlog && editingBlog.id === b.id) {
+              return (
+                <div
+                  key={b.id}
                   style={{
-                    background: isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)",
-                    border: `1px solid ${isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)"}`,
-                    color: isLight ? "#065f46" : "#34d399",
-                    padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700,
-                    cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em"
+                    background: t.surface,
+                    border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+                    borderRadius: 12, padding: 20, display: "flex", flexDirection: "column",
+                    boxShadow: isLight ? "0 4px 12px rgba(5,150,105,0.1)" : "none",
+                    position: "relative"
                   }}
                 >
-                  Comments
-                </button>
+                  <div style={{
+                    position: "absolute", top: 0, left: 0, right: 0, height: 3,
+                    background: "linear-gradient(90deg, #10b981, #06b6d4, #818cf8)",
+                  }} />
+                  <h3 style={{
+                    margin: "0 0 16px", fontSize: 12, fontWeight: 700,
+                    color: isLight ? "#059669" : "#22d3ee",
+                    textTransform: "uppercase", letterSpacing: "0.1em",
+                  }}>
+                    Edit Article
+                  </h3>
+                  <form onSubmit={handleUpdateBlog} style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%" }}>
+                    <div>
+                      <label style={labelStyle}>Title</label>
+                      <input
+                        type="text" required
+                        value={editBlogTitle}
+                        onChange={(e) => setEditBlogTitle(e.target.value)}
+                        className="tk-input"
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Content</label>
+                      <textarea
+                        required rows={5}
+                        value={editBlogContent}
+                        onChange={(e) => setEditBlogContent(e.target.value)}
+                        className="tk-input"
+                        style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+                      />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: "auto", paddingTop: 8 }}>
+                      <button
+                        type="button" className="tk-ghost"
+                        onClick={() => { setEditingBlog(null); setEditBlogTitle(""); setEditBlogContent(""); }}
+                        style={{
+                          background: "transparent", border: `1px solid ${t.border}`,
+                          color: t.textSecondary, borderRadius: 7, padding: "6px 12px",
+                          fontSize: 11, fontWeight: 500, cursor: "pointer",
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit" className="tk-primary"
+                        style={{
+                          background: t.accent, border: "none", color: "#fff",
+                          borderRadius: 7, padding: "6px 16px",
+                          fontSize: 11, fontWeight: 600, cursor: "pointer",
+                        }}
+                      >
+                        Update
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={b.id}
+                style={{
+                  background: t.surface,
+                  border: `1px solid ${t.border}`,
+                  borderRadius: 12, padding: 20, display: "flex", flexDirection: "column",
+                  boxShadow: t.shadow,
+                  position: "relative"
+                }}
+              >
+                {canManage && (
+                  <div style={{ position: "absolute", top: 16, right: 16 }}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveDropdownBlogId(activeDropdownBlogId === b.id ? null : b.id);
+                      }}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: t.textMuted,
+                        cursor: "pointer",
+                        fontSize: 16,
+                        padding: "4px 8px",
+                        borderRadius: 4,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        transition: "all 0.15s",
+                      }}
+                      className="tk-ghost"
+                    >
+                      ⋮
+                    </button>
+                    {activeDropdownBlogId === b.id && (
+                      <>
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveDropdownBlogId(null);
+                          }}
+                          style={{
+                            position: "fixed",
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            zIndex: 999,
+                            background: "transparent",
+                          }}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: 28,
+                            right: 0,
+                            background: t.surfaceRaised,
+                            border: `1px solid ${t.borderStrong}`,
+                            borderRadius: 8,
+                            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                            zIndex: 1000,
+                            minWidth: 100,
+                            display: "flex",
+                            flexDirection: "column",
+                            overflow: "hidden",
+                          }}
+                        >
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveDropdownBlogId(null);
+                              setEditingBlog(b);
+                              setEditBlogTitle(b.title);
+                              setEditBlogContent(b.content);
+                            }}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: t.textPrimary,
+                              padding: "8px 12px",
+                              textAlign: "left",
+                              fontSize: 12,
+                              fontWeight: 500,
+                              cursor: "pointer",
+                              transition: "background 0.15s",
+                            }}
+                            className="tk-ghost"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveDropdownBlogId(null);
+                              handleDeleteBlog(b.id);
+                            }}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "#f43f5e",
+                              padding: "8px 12px",
+                              textAlign: "left",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              transition: "background 0.15s",
+                            }}
+                            className="tk-ghost"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <h3 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: t.textPrimary, paddingRight: canManage ? 24 : 0 }}>
+                  {b.title}
+                </h3>
+                <p style={{ margin: "0 0 12px", fontSize: 11, color: t.textMuted }}>
+                  Author: {b.author_name} • {new Date(b.created_at).toLocaleDateString()}
+                </p>
+                <p style={{
+                  margin: "0 0 16px", fontSize: 12, lineHeight: 1.6, color: t.textSecondary,
+                  display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden"
+                }}>
+                  {b.content}
+                </p>
+
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  borderTop: `1px dashed ${t.border}`, paddingTop: 14, marginTop: "auto"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <button
+                      onClick={() => handleVote(b.id, 1)}
+                      style={{ background: "none", border: "none", color: b.user_vote === 1 ? t.accent : t.textMuted, cursor: "pointer", fontSize: 12 }}
+                    >
+                      ▲
+                    </button>
+                    <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: t.textSecondary }}>{b.score}</span>
+                    <button
+                      onClick={() => handleVote(b.id, -1)}
+                      style={{ background: "none", border: "none", color: b.user_vote === -1 ? "#ef4444" : t.textMuted, cursor: "pointer", fontSize: 12 }}
+                    >
+                      ▼
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => handleSelectBlog(b)}
+                    style={{
+                      background: isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)",
+                      border: `1px solid ${isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)"}`,
+                      color: isLight ? "#065f46" : "#34d399",
+                      padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                      cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em"
+                    }}
+                  >
+                    Comments
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         /* ── Blog Detail View ── */
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div style={{
-            background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: 24,
-            boxShadow: t.shadow,
-          }}>
-            <h1 style={{ margin: "0 0 10px", fontSize: 18, fontWeight: 700, color: t.textPrimary }}>
-              {selectedBlog.title}
-            </h1>
-            <p style={{ margin: "0 0 16px", fontSize: 11, color: t.textMuted }}>
-              Tác giả: {selectedBlog.author_name} • {new Date(selectedBlog.created_at).toLocaleString()}
-            </p>
-            <p style={{
-              margin: "0 0 20px", fontSize: 13, lineHeight: 1.7, color: t.textSecondary,
-              whiteSpace: "pre-wrap", borderLeft: `3px solid ${t.accent}`, paddingLeft: 14
+          {editingBlog && editingBlog.id === selectedBlog.id ? (
+            <div style={{
+              background: t.surface,
+              border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+              borderRadius: 12, padding: 24,
+              boxShadow: t.shadow, position: "relative"
             }}>
-              {selectedBlog.content}
-            </p>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 10, borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
-              <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 600 }}>Helpful Article?</span>
-              <button
-                onClick={() => handleVote(selectedBlog.id, 1)}
-                style={{ background: "none", border: "none", color: selectedBlog.user_vote === 1 ? t.accent : t.textMuted, cursor: "pointer", fontSize: 12 }}
-              >
-                ▲ Upvote
-              </button>
-              <span style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", fontWeight: 700, color: t.textPrimary }}>{selectedBlog.score}</span>
-              <button
-                onClick={() => handleVote(selectedBlog.id, -1)}
-                style={{ background: "none", border: "none", color: selectedBlog.user_vote === -1 ? "#ef4444" : t.textMuted, cursor: "pointer", fontSize: 12 }}
-              >
-                ▼ Downvote
-              </button>
+              <div style={{
+                position: "absolute", top: 0, left: 0, right: 0, height: 3,
+                background: "linear-gradient(90deg, #10b981, #06b6d4, #818cf8)",
+              }} />
+              <h3 style={{
+                margin: "0 0 16px", fontSize: 12, fontWeight: 700,
+                color: isLight ? "#059669" : "#22d3ee",
+                textTransform: "uppercase", letterSpacing: "0.1em",
+              }}>
+                Edit Article
+              </h3>
+              <form onSubmit={handleUpdateBlog} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div>
+                  <label style={labelStyle}>Title</label>
+                  <input
+                    type="text" required
+                    value={editBlogTitle}
+                    onChange={(e) => setEditBlogTitle(e.target.value)}
+                    className="tk-input"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Content</label>
+                  <textarea
+                    required rows={8}
+                    value={editBlogContent}
+                    onChange={(e) => setEditBlogContent(e.target.value)}
+                    className="tk-input"
+                    style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+                  />
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                  <button
+                    type="button" className="tk-ghost"
+                    onClick={() => { setEditingBlog(null); setEditBlogTitle(""); setEditBlogContent(""); }}
+                    style={{
+                      background: "transparent", border: `1px solid ${t.border}`,
+                      color: t.textSecondary, borderRadius: 7, padding: "8px 16px",
+                      fontSize: 12, fontWeight: 500, cursor: "pointer",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit" className="tk-primary"
+                    style={{
+                      background: t.accent, border: "none", color: "#fff",
+                      borderRadius: 7, padding: "8px 20px",
+                      fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    }}
+                  >
+                    Update
+                  </button>
+                </div>
+              </form>
             </div>
-          </div>
+          ) : (
+            <div style={{
+              background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: 24,
+              boxShadow: t.shadow, position: "relative"
+            }}>
+              {(userRole === "admin" || (userRole === "contributor" && selectedBlog.author_id === Number(userId))) && (
+                <div style={{ position: "absolute", top: 24, right: 24 }}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveDropdownBlogId(activeDropdownBlogId === selectedBlog.id ? null : selectedBlog.id);
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: t.textMuted,
+                      cursor: "pointer",
+                      fontSize: 16,
+                      padding: "4px 8px",
+                      borderRadius: 4,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "all 0.15s",
+                    }}
+                    className="tk-ghost"
+                  >
+                    ⋮
+                  </button>
+                  {activeDropdownBlogId === selectedBlog.id && (
+                    <>
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveDropdownBlogId(null);
+                        }}
+                        style={{
+                          position: "fixed",
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          zIndex: 999,
+                          background: "transparent",
+                        }}
+                      />
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 28,
+                          right: 0,
+                          background: t.surfaceRaised,
+                          border: `1px solid ${t.borderStrong}`,
+                          borderRadius: 8,
+                          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                          zIndex: 1000,
+                          minWidth: 100,
+                          display: "flex",
+                          flexDirection: "column",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveDropdownBlogId(null);
+                            setEditingBlog(selectedBlog);
+                            setEditBlogTitle(selectedBlog.title);
+                            setEditBlogContent(selectedBlog.content);
+                          }}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            color: t.textPrimary,
+                            padding: "8px 12px",
+                            textAlign: "left",
+                            fontSize: 12,
+                            fontWeight: 500,
+                            cursor: "pointer",
+                            transition: "background 0.15s",
+                          }}
+                          className="tk-ghost"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveDropdownBlogId(null);
+                            handleDeleteBlog(selectedBlog.id);
+                          }}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            color: "#f43f5e",
+                            padding: "8px 12px",
+                            textAlign: "left",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            transition: "background 0.15s",
+                          }}
+                          className="tk-ghost"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <h1 style={{ margin: "0 0 10px", fontSize: 18, fontWeight: 700, color: t.textPrimary, paddingRight: (userRole === "admin" || (userRole === "contributor" && selectedBlog.author_id === Number(userId))) ? 32 : 0 }}>
+                {selectedBlog.title}
+              </h1>
+              <p style={{ margin: "0 0 16px", fontSize: 11, color: t.textMuted }}>
+                Author: {selectedBlog.author_name} • {new Date(selectedBlog.created_at).toLocaleString()}
+              </p>
+              <p style={{
+                margin: "0 0 20px", fontSize: 13, lineHeight: 1.7, color: t.textSecondary,
+                whiteSpace: "pre-wrap", borderLeft: `3px solid ${t.accent}`, paddingLeft: 14
+              }}>
+                {selectedBlog.content}
+              </p>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 10, borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
+                <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 600 }}>Helpful Article?</span>
+                <button
+                  onClick={() => handleVote(selectedBlog.id, 1)}
+                  style={{ background: "none", border: "none", color: selectedBlog.user_vote === 1 ? t.accent : t.textMuted, cursor: "pointer", fontSize: 12 }}
+                >
+                  ▲ Upvote
+                </button>
+                <span style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", fontWeight: 700, color: t.textPrimary }}>{selectedBlog.score}</span>
+                <button
+                  onClick={() => handleVote(selectedBlog.id, -1)}
+                  style={{ background: "none", border: "none", color: selectedBlog.user_vote === -1 ? "#ef4444" : t.textMuted, cursor: "pointer", fontSize: 12 }}
+                >
+                  ▼ Downvote
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Discussion threads */}
           <div style={{
@@ -763,7 +1186,7 @@ export default function BlogsTab({ isLight = false }) {
               <textarea
                 rows={3} value={newCommentContent}
                 onChange={(e) => setNewCommentContent(e.target.value)}
-                placeholder="Ý kiến đóng góp, nhận xét cá nhân của bạn..."
+                placeholder="Write a comment..."
                 className="tk-input"
                 style={{ ...inputStyle, marginBottom: 10 }}
               />
@@ -782,7 +1205,7 @@ export default function BlogsTab({ isLight = false }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {rootComments.length === 0 ? (
                 <p style={{ margin: 0, fontSize: 12, color: t.textMuted, italic: true }}>
-                  Chưa có bình luận nào cho bài viết này. Hãy là người đầu tiên chia sẻ ý kiến!
+                  No comments yet. Be the first to share your thoughts!
                 </p>
               ) : (
                 rootComments.map((cmt) => renderCommentNode(cmt))

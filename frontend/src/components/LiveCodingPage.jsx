@@ -19,7 +19,7 @@ const CONTENT_TABS = [
 ];
 
 function normalizeEditorCode(raw) {
-  const text = raw || "";
+  const text = (raw || "").replace(/\r\n/g, "\n");
   const trimmed = text.trim();
   const fenceMatch = trimmed.match(/^```[a-zA-Z0-9_-]*\n([\s\S]*?)\n```$/);
   if (fenceMatch) {
@@ -138,7 +138,7 @@ export default function LiveCodingPage() {
 
         const savedDraft = localStorage.getItem(`draft_code_${problemId}`);
         if (savedDraft && savedDraft.trim() !== "" && savedDraft !== "undefined" && savedDraft !== "null") {
-          setCode(savedDraft);
+          setCode(savedDraft.replace(/\r\n/g, "\n"));
         } else {
           setCode(normalizeEditorCode(contentProblem.coding_markdown || ""));
         }
@@ -159,12 +159,12 @@ export default function LiveCodingPage() {
     setFormData({
       name: problem.name || "",
       source: problem.source || "",
-      statement_markdown: problem.statement_markdown || "",
-      theory_markdown: problem.theory_markdown || "",
-      tutorial_markdown: problem.tutorial_markdown || "",
-      solution_markdown: problem.solution_markdown || "",
-      coding_markdown: problem.coding_markdown || "",
-      checker_markdown: problem.checker_markdown || "",
+      statement_markdown: (problem.statement_markdown || "").replace(/\r\n/g, "\n"),
+      theory_markdown: (problem.theory_markdown || "").replace(/\r\n/g, "\n"),
+      tutorial_markdown: (problem.tutorial_markdown || "").replace(/\r\n/g, "\n"),
+      solution_markdown: (problem.solution_markdown || "").replace(/\r\n/g, "\n"),
+      coding_markdown: (problem.coding_markdown || "").replace(/\r\n/g, "\n"),
+      checker_markdown: (problem.checker_markdown || "").replace(/\r\n/g, "\n"),
     });
     setEditError("");
 
@@ -373,8 +373,9 @@ export default function LiveCodingPage() {
   const handleLoadSubmittedCode = (submittedCode) => {
     const confirmLoad = window.confirm("Do you want to load this submitted code into your codespace? This will overwrite your current workspace.");
     if (confirmLoad) {
-      setCode(submittedCode);
-      localStorage.setItem(`draft_code_${problemId}`, submittedCode);
+      const cleanCode = (submittedCode || "").replace(/\r\n/g, "\n");
+      setCode(cleanCode);
+      localStorage.setItem(`draft_code_${problemId}`, cleanCode);
     }
   };
 
@@ -800,7 +801,7 @@ export default function LiveCodingPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            setSolutionDraft(problem?.solution_markdown || "");
+                            setSolutionDraft((problem?.solution_markdown || "").replace(/\r\n/g, "\n"));
                             setIsEditingSolution(true);
                           }}
                           style={{
@@ -1006,7 +1007,7 @@ export default function LiveCodingPage() {
                           height="350px"
                           defaultLanguage="python"
                           language="python"
-                          value={problem?.solution_markdown || "No sample solution has been initialized for this problem."}
+                          value={normalizeEditorCode(problem?.solution_markdown || "No sample solution has been initialized for this problem.")}
                           theme={isLight ? "light" : "vs-dark"}
                           options={{
                             readOnly: true,
