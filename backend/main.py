@@ -596,18 +596,18 @@ async def create_problem_manual(
         coding_path = os.path.join(problem_folder, "coding.py") if coding_markdown else None
         checker_path = os.path.join(problem_folder, "checker.py") if checker_markdown else None
 
-        with open(statement_path, "w", encoding="utf-8") as f:
-            f.write(statement_markdown)
+        with open(statement_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(statement_markdown.replace("\r\n", "\n"))
         if theory_path:
-            with open(theory_path, "w", encoding="utf-8") as f: f.write(theory_markdown)
+            with open(theory_path, "w", encoding="utf-8", newline="\n") as f: f.write(theory_markdown.replace("\r\n", "\n"))
         if tutorial_path:
-            with open(tutorial_path, "w", encoding="utf-8") as f: f.write(tutorial_markdown)
+            with open(tutorial_path, "w", encoding="utf-8", newline="\n") as f: f.write(tutorial_markdown.replace("\r\n", "\n"))
         if solution_path:
-            with open(solution_path, "w", encoding="utf-8") as f: f.write(solution_markdown)
+            with open(solution_path, "w", encoding="utf-8", newline="\n") as f: f.write(solution_markdown.replace("\r\n", "\n"))
         if coding_path:
-            with open(coding_path, "w", encoding="utf-8") as f: f.write(coding_markdown)
+            with open(coding_path, "w", encoding="utf-8", newline="\n") as f: f.write(coding_markdown.replace("\r\n", "\n"))
         if checker_path:
-            with open(checker_path, "w", encoding="utf-8") as f: f.write(checker_markdown)
+            with open(checker_path, "w", encoding="utf-8", newline="\n") as f: f.write(checker_markdown.replace("\r\n", "\n"))
 
         input_folder_path = None
         output_folder_path = None
@@ -708,7 +708,8 @@ def get_problem_content(problem_id: int, user_id: Optional[int] = None, db: sqli
             if not path_value or not os.path.exists(path_value):
                 return ""
             with open(path_value, "r", encoding="utf-8") as f:
-                return f.read()
+                content = f.read()
+            return content.replace("\r\n", "\n")
 
         data = dict(row)
         statement_markdown = read_file(data["statement_path"])
@@ -2186,23 +2187,23 @@ async def update_problem(
     problem_folder = os.path.dirname(prob["statement_path"])
         
     if statement_markdown is not None and prob["statement_path"]:
-        with open(prob["statement_path"], "w", encoding="utf-8") as f:
-            f.write(statement_markdown)
+        with open(prob["statement_path"], "w", encoding="utf-8", newline="\n") as f:
+            f.write(statement_markdown.replace("\r\n", "\n"))
     if theory_markdown is not None and prob["theory_path"]:
-        with open(prob["theory_path"], "w", encoding="utf-8") as f:
-            f.write(theory_markdown)
+        with open(prob["theory_path"], "w", encoding="utf-8", newline="\n") as f:
+            f.write(theory_markdown.replace("\r\n", "\n"))
     if tutorial_markdown is not None and prob["tutorial_path"]:
-        with open(prob["tutorial_path"], "w", encoding="utf-8") as f:
-            f.write(tutorial_markdown)
+        with open(prob["tutorial_path"], "w", encoding="utf-8", newline="\n") as f:
+            f.write(tutorial_markdown.replace("\r\n", "\n"))
     if solution_markdown is not None and prob["solution_path"]:
-        with open(prob["solution_path"], "w", encoding="utf-8") as f:
-            f.write(solution_markdown)
+        with open(prob["solution_path"], "w", encoding="utf-8", newline="\n") as f:
+            f.write(solution_markdown.replace("\r\n", "\n"))
     if coding_markdown is not None and prob["coding_path"]:
-        with open(prob["coding_path"], "w", encoding="utf-8") as f:
-            f.write(coding_markdown)
+        with open(prob["coding_path"], "w", encoding="utf-8", newline="\n") as f:
+            f.write(coding_markdown.replace("\r\n", "\n"))
     if checker_markdown is not None and prob["checker_path"]:
-        with open(prob["checker_path"], "w", encoding="utf-8") as f:
-            f.write(checker_markdown)
+        with open(prob["checker_path"], "w", encoding="utf-8", newline="\n") as f:
+            f.write(checker_markdown.replace("\r\n", "\n"))
             
     if input_zip:
         if prob["input_folder_path"] and os.path.exists(prob["input_folder_path"]):

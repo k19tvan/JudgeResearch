@@ -12,15 +12,15 @@ If predicted box $A$ and ground truth box $B$ do not overlap, $\text{Area}(A \ca
 **Generalized Intersection over Union (GIoU)** addresses this issue by introducing a penalty term. We identify the **smallest enclosing box $C$** (convex hull) that covers both box $A$ and box $B$.
 
 ```text
-+-------------------+ (Smallest Enclosing Box C)
-|  +-------+        |
-|  | Box A |        |
-|  +-------+        |
-|                   |
-|          +-----+  |
-|          | Box B|  |
-|          +-----+  |
-+-------------------+
++---------------------+ (Smallest Enclosing Box C)
+|  +-------+          |
+|  | Box A |          |
+|  +-------+          |
+|                     |
+|          +-------+  |
+|          | Box B |  |
+|          +-------+  |
++---------------------+
 ```
 
 Formula:
