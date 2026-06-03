@@ -29,7 +29,7 @@ import re
 import os
 import requests  
 import json
-from prompts.prompt import get_problems_from_repo_prompt, feedback_prompt, create_detailedly_prompt, validate_problem_from_repo_prompt
+from prompts.prompt import get_problems_from_repo_prompt, feedback_prompt, create_detailedly_prompt, validate_problem_from_repo_prompt, validate_create_detailedly_response_prompt
 from dotenv import load_dotenv
 from json_repair import repair_json
 import tempfile
@@ -370,7 +370,7 @@ def validate_email_format(email: str) -> Optional[str]:
         return "Email must be a valid format."
     return None
 
-def fix_problem_from_repo_response(raw_ai_response: str) -> dict:
+def fix_problem_from_repo_response(raw_ai_response: str) -> SyntaxWarning:
     prompt = validate_problem_from_repo_prompt.format(last_ai_response=raw_ai_response)
     ai_response_fixed = client.models.generate_content(
         model="gemini-3.1-flash-lite",
@@ -382,8 +382,17 @@ def fix_problem_from_repo_response(raw_ai_response: str) -> dict:
 
     return ai_response_fixed
 
+def fix_create_detailed_response(raw_ai_response: str) -> str:
+    prompt = validate_create_detailedly_response_prompt.format(raw_ai_response=raw_ai_response)
+    ai_response_fixed = client.models.generate_content(
+        model="gemini-3.1-flash-lite",
+        config={
+            "system_instruction": "You are a strict JSON Validator and Senior Deep Learning Engineer. Your task is to ingest a raw, potentially malformed or technically inaccurate JSON string representing detailed problem materials, repair it, and output a standardized, production-ready JSON object. Follow the objectives and constraints outlined in the prompt meticulously."
+        },
+        contents=f"text:{prompt}"
+    ).text
 
-
+    return ai_response_fixed
 
 
 
@@ -1869,7 +1878,12 @@ def create_problem_detailedly(step_id: int, db: sqlite3.Connection = Depends(get
         raise HTTPException(status_code=500, detail=f"Prompt formatting error: {str(e)}")
 
     ai_raw_response = ask_question(repo_url, question_prompt)
+    with open("debug_ai_response.txt", "w", encoding="utf-8") as debug_file:
+        debug_file.write(ai_raw_response)
     
+    ai_raw_response = fix_create_detailed_response(ai_raw_response)
+    with open("debug_ai_response_fixed.txt", "w", encoding="utf-8") as debug_file:
+        debug_file.write(ai_raw_response)
     try:
         raw_json_data = parse_and_repair_json(ai_raw_response)
         raw_json_data = validate_and_ensure_complete_materials(raw_json_data)
