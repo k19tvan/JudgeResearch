@@ -7,7 +7,13 @@ import {
   finalizeDraftSession,
   updateDraftSessionFeedback,
   createProblemDetailedly,
-  saveStepToProblem, // Thêm gọi API mới lưu chính thức
+  saveStepToProblem,
+  deleteRoadmap,
+  requestRoadmapApproval,
+  approveRoadmap,
+  rejectRoadmap,
+  publishRoadmapDirectly,
+  unpublishRoadmap,
 } from "../api";
 
 export default function ResearchRoadmapPage({ mode }) {
@@ -23,9 +29,18 @@ export default function ResearchRoadmapPage({ mode }) {
   const [loading, setLoading] = useState("");
   const [error, setError] = useState("");
   const [creatingStepId, setCreatingStepId] = useState(null);
-  const [savingStepId, setSavingStepId] = useState(null); // Quản lý trạng thái lưu chính thức
+  const [savingStepId, setSavingStepId] = useState(null);
   const theme = localStorage.getItem("home_theme") || "dark";
   const isLight = theme === "light";
+
+  const userRole = localStorage.getItem("user_role") || "user";
+  const currentUserId = Number(localStorage.getItem("user_id") || "0");
+
+  const isOwnerOrAdmin = useMemo(() => {
+    if (userRole === "admin") return true;
+    if (roadmap && Number(roadmap.user_id) === currentUserId) return true;
+    return false;
+  }, [roadmap, userRole, currentUserId]);
 
   const tone = useMemo(() => ({
     page: isLight ? "bg-[#eaf2f0] text-slate-900" : "bg-[#080C14] text-slate-100",
@@ -102,14 +117,13 @@ export default function ResearchRoadmapPage({ mode }) {
     }
   };
 
-  // 1. Tạo tài liệu nháp
   const handleCreateDetailedly = async (stepId) => {
     setError("");
     setCreatingStepId(stepId);
     try {
       const result = await createProblemDetailedly(stepId);
       if (result?.status === "success") {
-        await loadRoadmapData(); // Reload lại dữ liệu mới từ backend
+        await loadRoadmapData();
       }
     } catch (err) {
       setError(err.message || "Create problem materials failed");
@@ -118,19 +132,99 @@ export default function ResearchRoadmapPage({ mode }) {
     }
   };
 
-  // 2. Chuyển đổi và lưu thành bài tập thực chính thức
   const handleSaveToProblem = async (stepId) => {
     setError("");
     setSavingStepId(stepId);
     try {
       const result = await saveStepToProblem(stepId);
       if (result?.status === "success") {
-        await loadRoadmapData(); // Reload để cập nhật nút "Go" và problem_id chính thức
+        await loadRoadmapData();
       }
     } catch (err) {
       setError(err.message || "Failed to save problem to system");
     } finally {
       setSavingStepId(null);
+    }
+  };
+
+  // CHUYỂN HƯỚNG TRỰC TIẾP LÊN LIVE CODING SPACE Ở CHẾ ĐỘ PREVIEW DRAFT
+  const handleOpenPreview = (stepId) => {
+    navigate(`/livecoding/draft/${stepId}`);
+  };
+
+  const handlePublishOrApproval = async () => {
+    if (!roadmap?.id) return;
+    setLoading("publish");
+    setError("");
+    try {
+      if (userRole === "admin") {
+        await publishRoadmapDirectly(roadmap.id);
+      } else {
+        await requestRoadmapApproval(roadmap.id);
+      }
+      await loadRoadmapData();
+    } catch (err) {
+      setError(err.message || "Failed to update roadmap visibility");
+    } finally {
+      setLoading("");
+    }
+  };
+
+  const handleAdminApprove = async () => {
+    if (!roadmap?.id) return;
+    setLoading("publish");
+    setError("");
+    try {
+      await approveRoadmap(roadmap.id);
+      await loadRoadmapData();
+    } catch (err) {
+      setError(err.message || "Failed to approve roadmap");
+    } finally {
+      setLoading("");
+    }
+  };
+
+  const handleAdminReject = async () => {
+    if (!roadmap?.id) return;
+    setLoading("publish");
+    setError("");
+    try {
+      await rejectRoadmap(roadmap.id);
+      await loadRoadmapData();
+    } catch (err) {
+      setError(err.message || "Failed to reject roadmap");
+    } finally {
+      setLoading("");
+    }
+  };
+
+  const handleUnpublish = async () => {
+    if (!roadmap?.id) return;
+    if (!window.confirm("Are you sure you want to unpublish this roadmap? Normal students will not be able to view it anymore.")) return;
+    setLoading("publish");
+    setError("");
+    try {
+      await unpublishRoadmap(roadmap.id);
+      await loadRoadmapData();
+    } catch (err) {
+      setError(err.message || "Failed to unpublish roadmap");
+    } finally {
+      setLoading("");
+    }
+  };
+
+  const handleDeleteRoadmap = async () => {
+    if (!roadmap?.id) return;
+    const confirmMessage = "Hành động này sẽ xóa bỏ hoàn toàn cấu trúc lộ trình cùng các tư liệu nháp chưa lưu. Các bài tập đã chuyển đổi thành công (Saved) sang kho chung sẽ được giữ lại độc lập.\n\nBạn có chắc chắn muốn xóa vĩnh viễn lộ trình này?";
+    if (!window.confirm(confirmMessage)) return;
+    setLoading("delete");
+    setError("");
+    try {
+      await deleteRoadmap(roadmap.id);
+      navigate(previousPath);
+    } catch (err) {
+      setError(err.message || "Failed to delete roadmap");
+      setLoading("");
     }
   };
 
@@ -148,18 +242,85 @@ export default function ResearchRoadmapPage({ mode }) {
         <header className={`rounded-lg border p-4 ${tone.panel}`}>
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h1 className={`text-2xl font-bold ${tone.title}`}>{currentTitle}</h1>
+              <div className="flex items-center gap-3">
+                <h1 className={`text-2xl font-bold ${tone.title}`}>{currentTitle}</h1>
+                {mode === "roadmap" && roadmap && (
+                  <span className={`rounded px-2.5 py-0.5 text-xs font-semibold uppercase ${
+                    roadmap.status === "public"
+                      ? "bg-emerald-500/15 text-emerald-500"
+                      : roadmap.status === "pending"
+                      ? "bg-amber-500/15 text-amber-500"
+                      : "bg-slate-500/15 text-slate-400"
+                  }`}>
+                    {roadmap.status === "public" ? "Public" : roadmap.status === "pending" ? "Pending Approval" : "Private (Draft)"}
+                  </span>
+                )}
+              </div>
               <p className={`mt-1 text-sm ${tone.muted}`}>
                 {mode === "draft" ? draft?.repository_url : roadmap?.repository_url}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => navigate("/", { state: { activeTab: "RESEARCH" } })}
-              className="rounded-lg border border-emerald-500/40 px-4 py-2 text-sm font-semibold text-emerald-500 hover:bg-emerald-500/10"
-            >
-              Back
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {mode === "roadmap" && roadmap && isOwnerOrAdmin && (
+                <>
+                  {roadmap.status === "draft" && (
+                    <button
+                      type="button"
+                      onClick={handlePublishOrApproval}
+                      disabled={loading === "publish"}
+                      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 transition-colors"
+                    >
+                      {userRole === "admin" ? "Publish Directly" : "Publish to Public"}
+                    </button>
+                  )}
+                  {roadmap.status === "pending" && userRole === "admin" && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleAdminApprove}
+                        disabled={loading === "publish"}
+                        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 transition-colors"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAdminReject}
+                        disabled={loading === "publish"}
+                        className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500 transition-colors"
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
+                  {roadmap.status === "public" && (
+                    <button
+                      type="button"
+                      onClick={handleUnpublish}
+                      disabled={loading === "publish"}
+                      className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-600 transition-colors"
+                    >
+                      Unpublish
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleDeleteRoadmap}
+                    disabled={loading === "delete"}
+                    className="rounded-lg bg-rose-600/10 border border-rose-500/20 px-3 py-2 text-sm font-semibold text-rose-400 hover:bg-rose-600/20 transition-colors"
+                  >
+                    Delete Roadmap
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => navigate("/", { state: { activeTab: "RESEARCH" } })}
+                className="rounded-lg border border-emerald-500/40 px-4 py-2 text-sm font-semibold text-emerald-500 hover:bg-emerald-500/10 transition-colors"
+              >
+                Back
+              </button>
+            </div>
           </div>
         </header>
 
@@ -246,7 +407,7 @@ export default function ResearchRoadmapPage({ mode }) {
             <div className="mt-4 space-y-3">
               {(roadmap?.problems || []).map((problem) => {
                 const stepId = problem.step_id;
-                const stepStatus = problem.step_status; // 'pending', 'generated', 'saved'
+                const stepStatus = problem.step_status;
                 
                 return (
                   <div key={stepId} className={`rounded-lg border p-4 ${tone.card}`}>
@@ -281,7 +442,7 @@ export default function ResearchRoadmapPage({ mode }) {
                           </button>
                         )}
                         
-                        {stepStatus === "pending" && (
+                        {isOwnerOrAdmin && stepStatus === "pending" && (
                           <button
                             type="button"
                             onClick={() => handleCreateDetailedly(stepId)}
@@ -296,7 +457,7 @@ export default function ResearchRoadmapPage({ mode }) {
                           </button>
                         )}
                         
-                        {stepStatus === "generated" && (
+                        {isOwnerOrAdmin && stepStatus === "generated" && (
                           <div className="flex gap-2">
                             <button
                               type="button"
@@ -305,6 +466,13 @@ export default function ResearchRoadmapPage({ mode }) {
                               className="shrink-0 rounded-lg bg-slate-700 hover:bg-slate-600 px-3 py-2 text-xs font-semibold text-slate-300 transition-colors"
                             >
                               {creatingStepId === stepId ? "Regenerating..." : "Regenerate"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenPreview(stepId)}
+                              className="shrink-0 rounded-lg bg-blue-600 hover:bg-blue-500 px-3 py-2 text-xs font-semibold text-white transition-colors"
+                            >
+                              Preview Draft
                             </button>
                             <button
                               type="button"

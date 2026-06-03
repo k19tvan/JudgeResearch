@@ -255,28 +255,81 @@ export default function ProblemsTab({ isLight = false }) {
     }
   };
 
+  // QUẢN LÝ THAY ĐỔI TRẠNG THÁI KHẢ DỤNG (VISIBILITY) CHẶT CHẼ
   const handleToggleVisibility = async (e, problem) => {
     e.stopPropagation();
-    const isPrivate = problem.is_public === 0;
-    const targetAction = isPrivate ? "public" : "private";
+    const isPublic = problem.is_public === 1;
+    const isPending = problem.request_status === "PENDING";
     
     setIsSubmitting(true);
     try {
-      const response = await fetch(`http://localhost:21081/api/problems/${problem.id}/${targetAction}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: currentUserId })
-      });
-      const result = await response.json();
-      if (response.ok) {
-        setSuccessMessage(`Problem successfully changed to ${targetAction}!`);
-        await loadProblems();
-      } else {
-        alert(`Error: ${result.detail || "Action failed"}`);
+      if (role === "admin") {
+        if (!isPublic) {
+          // Admin duyệt trực tiếp bài đang pending hoặc đưa một bài private lên public
+          const endpoint = isPending ? "approve" : "public";
+          const response = await fetch(`http://localhost:21081/api/problems/${problem.id}/${endpoint}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ admin_id: currentUserId, user_id: currentUserId })
+          });
+          const result = await response.json();
+          if (response.ok) {
+            setSuccessMessage(`Problem successfully approved & published!`);
+            await loadProblems();
+          } else {
+            alert(`Error: ${result.detail || "Action failed"}`);
+          }
+        } else {
+          // Admin gỡ bài public xuống thành private
+          const response = await fetch(`http://localhost:21081/api/problems/${problem.id}/private`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: currentUserId })
+          });
+          const result = await response.json();
+          if (response.ok) {
+            setSuccessMessage(`Problem successfully set to private!`);
+            await loadProblems();
+          } else {
+            alert(`Error: ${result.detail || "Action failed"}`);
+          }
+        }
+      } else if (role === "contributor") {
+        if (!isPublic) {
+          if (isPending) return; // Nếu đang chờ duyệt thì không cho ấn
+          
+          // Contributor gửi yêu cầu duyệt Public (Request Approval)
+          const response = await fetch(`http://localhost:21081/api/problems/${problem.id}/request-approval`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: currentUserId })
+          });
+          const result = await response.json();
+          if (response.ok) {
+            setSuccessMessage(`Approval request submitted successfully! Trạng thái hiện tại: Private (Pending).`);
+            await loadProblems();
+          } else {
+            alert(`Error: ${result.detail || "Request failed"}`);
+          }
+        } else {
+          // Contributor thu hồi bài tập đã Public về lại chế độ Private
+          const response = await fetch(`http://localhost:21081/api/problems/${problem.id}/private`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: currentUserId })
+          });
+          const result = await response.json();
+          if (response.ok) {
+            setSuccessMessage(`Problem retracted back to Private.`);
+            await loadProblems();
+          } else {
+            alert(`Error: ${result.detail || "Action failed"}`);
+          }
+        }
       }
     } catch (err) {
       console.error(err);
-      alert(`Failed to make problem ${targetAction}.`);
+      alert("Failed to change problem visibility.");
     } finally {
       setIsSubmitting(false);
     }
@@ -376,6 +429,112 @@ export default function ProblemsTab({ isLight = false }) {
         background: "#ef4444", display: "inline-block",
         boxShadow: "0 0 8px rgba(239,68,68,0.5)"
       }} title="Attempted / Failed" />
+    );
+  };
+
+  // PHẦN RENDER NÚT TOGGLE VISIBILITY THEO PHÂN QUYỀN VÀ TRẠNG THÁI
+  const renderVisibilityButton = (problem) => {
+    const isPublic = problem.is_public === 1;
+    const isPending = problem.request_status === "PENDING";
+    const isAuthor = problem.author_id === currentUserId;
+    const hasPermission = role === "admin" || (role === "contributor" && isAuthor);
+
+    if (!hasPermission) {
+      // Badge chỉ đọc cho các tài khoản không có quyền sở hữu
+      if (isPublic) {
+        return (
+          <span style={{
+            display: "inline-flex", padding: "4px 10px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+            background: isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)",
+            color: isLight ? "#065f46" : "#34d399",
+            border: `1px solid ${isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)"}`,
+          }}>
+            Public
+          </span>
+        );
+      }
+      if (isPending) {
+        return (
+          <span style={{
+            display: "inline-flex", padding: "4px 10px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+            background: isLight ? "#fffbeb" : "rgba(245,158,11,0.08)",
+            color: isLight ? "#d97706" : "#fbbf24",
+            border: `1px solid ${isLight ? "#fde68a" : "rgba(245,158,11,0.2)"}`,
+          }}>
+            Private (Pending)
+          </span>
+        );
+      }
+      return (
+        <span style={{
+          display: "inline-flex", padding: "4px 10px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+          background: isLight ? "#f1f5f9" : "rgba(255,255,255,0.04)",
+          color: t.textSecondary,
+          border: `1px solid ${t.border}`,
+        }}>
+          Private
+        </span>
+      );
+    }
+
+    // Thiết lập giao diện nút bấm đối với Admin hoặc Chủ sở hữu (Contributor Author)
+    let bg = isLight ? "#f1f5f9" : "rgba(255,255,255,0.04)";
+    let fg = t.textSecondary;
+    let border = `1px solid ${t.border}`;
+    let text = "Private";
+
+    if (isPublic) {
+      bg = isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)";
+      fg = isLight ? "#065f46" : "#34d399";
+      border = `1px solid ${isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)"}`;
+      text = "Public";
+    } else if (isPending) {
+      bg = isLight ? "#fffbeb" : "rgba(245,158,11,0.08)";
+      fg = isLight ? "#d97706" : "#fbbf24";
+      border = `1px solid ${isLight ? "#fde68a" : "rgba(245,158,11,0.2)"}`;
+      text = "Private (Pending)";
+    }
+
+    return (
+      <button
+        type="button"
+        disabled={isSubmitting || (role === "contributor" && isPending)}
+        onClick={(e) => handleToggleVisibility(e, problem)}
+        style={{
+          display: "inline-flex", padding: "4px 10px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+          background: bg, color: fg, border: border,
+          cursor: (role === "contributor" && isPending) ? "default" : "pointer",
+          transition: "all 0.15s ease",
+          outline: "none"
+        }}
+        onMouseEnter={(e) => {
+          if (role === "contributor" && isPending) return;
+          if (isPublic) {
+            e.currentTarget.style.background = isLight ? "#fee2e2" : "rgba(239,68,68,0.15)";
+            e.currentTarget.style.color = isLight ? "#991b1b" : "#f87171";
+            e.currentTarget.style.borderColor = isLight ? "#fca5a5" : "rgba(239,68,68,0.3)";
+            e.currentTarget.textContent = "Make Private";
+          } else if (isPending && role === "admin") {
+            e.currentTarget.style.background = isLight ? "#ecfdf5" : "rgba(16,185,129,0.15)";
+            e.currentTarget.style.color = isLight ? "#065f46" : "#34d399";
+            e.currentTarget.style.borderColor = isLight ? "#6ee7b7" : "rgba(16,185,129,0.3)";
+            e.currentTarget.textContent = "Approve";
+          } else {
+            e.currentTarget.style.background = isLight ? "#ecfdf5" : "rgba(16,185,129,0.15)";
+            e.currentTarget.style.color = isLight ? "#065f46" : "#34d399";
+            e.currentTarget.style.borderColor = isLight ? "#6ee7b7" : "rgba(16,185,129,0.3)";
+            e.currentTarget.textContent = role === "admin" ? "Make Public" : "Request Public";
+          }
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = bg;
+          e.currentTarget.style.color = fg;
+          e.currentTarget.style.borderColor = border;
+          e.currentTarget.textContent = text;
+        }}
+      >
+        {text}
+      </button>
     );
   };
 
@@ -526,7 +685,6 @@ export default function ProblemsTab({ isLight = false }) {
             </thead>
             <tbody>
               {problems.map((problem, index) => {
-                const isPrivate = problem.is_public === 0;
                 const bestStatus = problem.best_status ? problem.best_status.toLowerCase() : null;
 
                 const cleanSlug = problem.name
@@ -591,55 +749,9 @@ export default function ProblemsTab({ isLight = false }) {
                       </span>
                     </td>
 
-                    {/* Visibility (Nhấn để đảo trạng thái trực tiếp nếu có quyền) */}
+                    {/* Visibility */}
                     <td style={{ padding: "14px 10px", width: 120, textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
-                      {role === "admin" || (role === "contributor" && problem.author_id === currentUserId) ? (
-                        <button
-                          type="button"
-                          disabled={isSubmitting}
-                          onClick={(e) => handleToggleVisibility(e, problem)}
-                          title={isPrivate ? "Click to make Public" : "Click to make Private"}
-                          style={{
-                            display: "inline-flex", padding: "4px 10px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
-                            background: isPrivate ? (isLight ? "#fffbeb" : "rgba(245,158,11,0.08)") : (isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)"),
-                            color: isPrivate ? (isLight ? "#d97706" : "#fbbf24") : (isLight ? "#065f46" : "#34d399"),
-                            border: `1px solid ${isPrivate ? (isLight ? "#fde68a" : "rgba(245,158,11,0.2)") : (isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)")}`,
-                            cursor: "pointer",
-                            transition: "all 0.15s ease",
-                            outline: "none"
-                          }}
-                          onMouseEnter={(e) => {
-                            if (isPrivate) {
-                              e.currentTarget.style.background = isLight ? "#ecfdf5" : "rgba(16,185,129,0.15)";
-                              e.currentTarget.style.color = isLight ? "#065f46" : "#34d399";
-                              e.currentTarget.style.borderColor = isLight ? "#6ee7b7" : "rgba(16,185,129,0.3)";
-                              e.currentTarget.textContent = "Make Public";
-                            } else {
-                              e.currentTarget.style.background = isLight ? "#fee2e2" : "rgba(239,68,68,0.15)";
-                              e.currentTarget.style.color = isLight ? "#991b1b" : "#f87171";
-                              e.currentTarget.style.borderColor = isLight ? "#fca5a5" : "rgba(239,68,68,0.3)";
-                              e.currentTarget.textContent = "Make Private";
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = isPrivate ? (isLight ? "#fffbeb" : "rgba(245,158,11,0.08)") : (isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)");
-                            e.currentTarget.style.color = isPrivate ? (isLight ? "#d97706" : "#fbbf24") : (isLight ? "#065f46" : "#34d399");
-                            e.currentTarget.style.borderColor = isPrivate ? (isLight ? "#fde68a" : "rgba(245,158,11,0.2)") : (isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)");
-                            e.currentTarget.textContent = isPrivate ? "Private" : "Public";
-                          }}
-                        >
-                          {isPrivate ? "Private" : "Public"}
-                        </button>
-                      ) : (
-                        <span style={{
-                          display: "inline-flex", padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
-                          background: isPrivate ? (isLight ? "#fffbeb" : "rgba(245,158,11,0.08)") : (isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)"),
-                          color: isPrivate ? (isLight ? "#d97706" : "#fbbf24") : (isLight ? "#065f46" : "#34d399"),
-                          border: `1px solid ${isPrivate ? (isLight ? "#fde68a" : "rgba(245,158,11,0.2)") : (isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)")}`,
-                        }}>
-                          {isPrivate ? "Private" : "Public"}
-                        </span>
-                      )}
+                      {renderVisibilityButton(problem)}
                     </td>
 
                     {/* Sửa và Xóa */}

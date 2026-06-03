@@ -2,9 +2,10 @@
 import React, { useEffect, useState } from "react";
 
 export default function AdminQueueTab({ isLight = false }) {
-  const [activeQueueTab, setActiveQueueTab] = useState("problems"); // 'problems' hoặc 'solutions'
+  const [activeQueueTab, setActiveQueueTab] = useState("problems"); // 'problems', 'solutions', 'roadmaps'
   const [requests, setRequests] = useState([]);
   const [solutionProposals, setSolutionProposals] = useState([]);
+  const [roadmaps, setRoadmaps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
   const [expandedProposalId, setExpandedProposalId] = useState(null);
@@ -12,8 +13,8 @@ export default function AdminQueueTab({ isLight = false }) {
   const adminId = localStorage.getItem("user_id");
 
   // Load danh sách bài tập công khai chờ duyệt
-  const loadPendingRequests = async () => {
-    setLoading(true);
+  const loadPendingRequests = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       const response = await fetch(`http://localhost:21081/api/problems/pending-requests?admin_id=${adminId}`);
       const result = await response.json();
@@ -21,13 +22,13 @@ export default function AdminQueueTab({ isLight = false }) {
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   // Load danh sách đề xuất lời giải từ Contributor chờ kiểm duyệt
-  const loadSolutionProposals = async () => {
-    setLoading(true);
+  const loadSolutionProposals = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       const response = await fetch(`http://localhost:21081/api/admin/solution-proposals?admin_id=${adminId}`);
       const result = await response.json();
@@ -35,15 +36,52 @@ export default function AdminQueueTab({ isLight = false }) {
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
+  // Load danh sách Roadmap gửi duyệt (status = 'pending')
+  const loadPendingRoadmaps = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    try {
+      const response = await fetch(`http://localhost:21081/api/roadmaps`, {
+        headers: {
+          "Authorization": `Bearer ${localStorage.getItem("access_token")}`
+        }
+      });
+      const result = await response.json();
+      // Lọc local lấy ra những Roadmap có trạng thái chờ duyệt 'pending'
+      const pendingRoadmaps = (result?.data || []).filter(r => r.status === "pending");
+      setRoadmaps(pendingRoadmaps);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  };
+
+  // Tải đồng bộ số lượng hàng đợi của cả 3 tab khi mount lần đầu tiên
+  useEffect(() => {
+    const loadAllQueues = async () => {
+      setLoading(true);
+      await Promise.all([
+        loadPendingRequests(false),
+        loadSolutionProposals(false),
+        loadPendingRoadmaps(false)
+      ]);
+      setLoading(false);
+    };
+    loadAllQueues();
+  }, []);
+
+  // Thực hiện tải mới khi chuyển tab thủ công
   useEffect(() => {
     if (activeQueueTab === "problems") {
-      loadPendingRequests();
-    } else {
-      loadSolutionProposals();
+      loadPendingRequests(true);
+    } else if (activeQueueTab === "solutions") {
+      loadSolutionProposals(true);
+    } else if (activeQueueTab === "roadmaps") {
+      loadPendingRoadmaps(true);
     }
   }, [activeQueueTab]);
 
@@ -57,7 +95,7 @@ export default function AdminQueueTab({ isLight = false }) {
         body: JSON.stringify({ admin_id: Number(adminId) }),
       });
       if (response.ok) {
-        await loadPendingRequests();
+        await loadPendingRequests(true);
       }
     } catch (err) {
       console.error(err);
@@ -77,10 +115,35 @@ export default function AdminQueueTab({ isLight = false }) {
       });
       if (response.ok) {
         alert(action === "approve" ? "Đã duyệt giải pháp này thành công!" : "Đã bác bỏ đề xuất thành công!");
-        await loadSolutionProposals();
+        await loadSolutionProposals(true);
       } else {
         const res = await response.json();
         alert(res.detail || "Lỗi xử lý đề xuất");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Hành động kiểm duyệt Roadmap công khai
+  const handleRoadmapAction = async (roadmapId, action) => {
+    setActionLoading(roadmapId);
+    try {
+      const response = await fetch(`http://localhost:21081/api/roadmaps/${roadmapId}/${action}`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("access_token")}`
+        }
+      });
+      if (response.ok) {
+        alert(action === "approve" ? "Đã duyệt lộ trình thành công!" : "Đã bác bỏ yêu cầu duyệt lộ trình!");
+        await loadPendingRoadmaps(true);
+      } else {
+        const res = await response.json();
+        alert(res.detail || "Lỗi xử lý lộ trình");
       }
     } catch (err) {
       console.error(err);
@@ -159,7 +222,7 @@ export default function AdminQueueTab({ isLight = false }) {
         </div>
       </div>
 
-      {/* ── Sub-navigation Tabs (Điều hướng song song) ── */}
+      {/* ── Sub-navigation Tabs (Điều hướng song song 3 Tab) ── */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         <button
           type="button"
@@ -185,23 +248,38 @@ export default function AdminQueueTab({ isLight = false }) {
         >
           Solution Proposals ({solutionProposals.length})
         </button>
+        <button
+          type="button"
+          onClick={() => { setActiveQueueTab("roadmaps"); setExpandedProposalId(null); }}
+          style={{
+            padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            background: activeQueueTab === "roadmaps" ? t.accent : (isLight ? "#e2e8f0" : "rgba(255,255,255,0.04)"),
+            color: activeQueueTab === "roadmaps" ? "#fff" : t.textSecondary,
+            border: "none", transition: "all 0.15s"
+          }}
+        >
+          Roadmap Requests ({roadmaps.length})
+        </button>
       </div>
 
-      {activeQueueTab === "problems" ? (
-        /* ── HIỂN THỊ HÀNG CHỜ YÊU CẦU CÔNG KHAI BÀI TẬP ── */
-        loading ? (
-          <div style={{
-            background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
-          }}>
-            <p className="animate-pulse">Loading approval queue...</p>
-          </div>
-        ) : requests.length === 0 ? (
+      {/* ── KHỐI CHUNG: LOADING GENERAL SPINNER ── */}
+      {loading && (
+        <div style={{
+          background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
+        }}>
+          <p className="animate-pulse">Loading requests queue...</p>
+        </div>
+      )}
+
+      {/* ── TAB 1: HIỂN THỊ HÀNG CHỜ YÊU CẦU CÔNG KHAI BÀI TẬP ── */}
+      {!loading && activeQueueTab === "problems" && (
+        requests.length === 0 ? (
           <div style={{
             background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
             boxShadow: t.shadow,
           }}>
             <div style={{ marginBottom: 8, opacity: 0.35, fontSize: 28 }}>✅</div>
-            All caught up! No pending requests.
+            All caught up! No pending problem requests.
           </div>
         ) : (
           <div style={{
@@ -315,15 +393,11 @@ export default function AdminQueueTab({ isLight = false }) {
             </table>
           </div>
         )
-      ) : (
-        /* ── HIỂN THỊ HÀNG CHỜ YÊU CẦU DUYỆT ĐỀ XUẤT LỜI GIẢI MẪU ── */
-        loading ? (
-          <div style={{
-            background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
-          }}>
-            <p className="animate-pulse">Loading solutions proposals queue...</p>
-          </div>
-        ) : solutionProposals.length === 0 ? (
+      )}
+
+      {/* ── TAB 2: HIỂN THỊ HÀNG CHỜ YÊU CẦU DUYỆT ĐỀ XUẤT LỜI GIẢI MẪU ── */}
+      {!loading && activeQueueTab === "solutions" && (
+        solutionProposals.length === 0 ? (
           <div style={{
             background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
             boxShadow: t.shadow,
@@ -460,6 +534,125 @@ export default function AdminQueueTab({ isLight = false }) {
                     </React.Fragment>
                   );
                 })}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+
+      {/* ── TAB 3: HIỂN THỊ HÀNG CHỜ YÊU CẦU DUYỆT ROADMAP ── */}
+      {!loading && activeQueueTab === "roadmaps" && (
+        roadmaps.length === 0 ? (
+          <div style={{
+            background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
+            boxShadow: t.shadow,
+          }}>
+            <div style={{ marginBottom: 8, opacity: 0.35, fontSize: 28 }}>✅</div>
+            All caught up! No pending roadmap requests.
+          </div>
+        ) : (
+          <div style={{
+            background: t.surface,
+            border: `1px solid ${t.border}`,
+            borderRadius: 12, overflow: "hidden",
+            boxShadow: t.shadow,
+          }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+              <thead>
+                <tr style={{
+                  background: isLight ? t.tableHeadBg : t.tableHeadBg,
+                  borderBottom: `1px solid ${isLight ? t.accentDark + "55" : t.border}`,
+                }}>
+                  {["ID", "Roadmap Name", "Repository URL", "Level", "Steps", "Actions"].map((h, i) => (
+                    <th key={i} style={{
+                      padding: "12px 20px",
+                      textAlign: i === 5 ? "center" : "left",
+                      fontSize: 10, fontWeight: 700, letterSpacing: "0.09em",
+                      textTransform: "uppercase",
+                      color: isLight ? "#fff" : t.textSecondary,
+                      fontFamily: "'DM Mono', monospace",
+                    }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {roadmaps.map((road, idx) => (
+                  <tr
+                    key={road.id}
+                    style={{
+                      borderBottom: `1px solid ${isLight ? "#e2e8f0" : "rgba(255,255,255,0.04)"}`,
+                      background: idx % 2 === 0
+                        ? "transparent"
+                        : (isLight ? "#f8fafc" : "rgba(255,255,255,0.01)"),
+                    }}
+                  >
+                    <td style={{ padding: "14px 20px", width: 110 }}>
+                      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: t.accent, fontWeight: 600 }}>
+                        #ROAD_{road.id}
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 20px" }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary }}>
+                        {road.name}
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 20px" }}>
+                      <span style={{ fontSize: 12, color: t.textSecondary, fontFamily: "'DM Mono', monospace" }}>
+                        {road.repository_url}
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 20px", width: 120 }}>
+                      <span style={{ fontSize: 11, color: t.textSecondary, textTransform: "capitalize" }}>
+                        {road.level}
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 20px", width: 100 }}>
+                      <span style={{ fontSize: 11, color: t.textSecondary, fontFamily: "'DM Mono', monospace" }}>
+                        {road.problem_count || 0} steps
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 20px", width: 220, textAlign: "center" }}>
+                      <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
+                        <button
+                          type="button"
+                          disabled={actionLoading === road.id}
+                          onClick={() => handleRoadmapAction(road.id, "approve")}
+                          style={{
+                            background: isLight ? "#059669" : "transparent",
+                            border: isLight ? "none" : "1px solid rgba(16,185,129,0.3)",
+                            color: isLight ? "#fff" : "#34d399",
+                            padding: "5px 12px", borderRadius: 5,
+                            fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+                            cursor: "pointer", transition: "all 0.15s",
+                            textTransform: "uppercase",
+                            opacity: actionLoading === road.id ? 0.6 : 1,
+                          }}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionLoading === road.id}
+                          onClick={() => handleRoadmapAction(road.id, "reject")}
+                          style={{
+                            background: isLight ? "#e11d48" : "transparent",
+                            border: isLight ? "none" : "1px solid rgba(244,63,94,0.3)",
+                            color: isLight ? "#fff" : "#fb7185",
+                            padding: "5px 12px", borderRadius: 5,
+                            fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+                            cursor: "pointer", transition: "all 0.15s",
+                            textTransform: "uppercase",
+                            opacity: actionLoading === road.id ? 0.6 : 1,
+                          }}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
