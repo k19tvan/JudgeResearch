@@ -14,6 +14,8 @@ export default function ResearchTab({ isLight = false }) {
   const [roadmaps, setRoadmaps] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState("");
+  // Thêm state lưu trữ từ khóa tìm kiếm
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [formData, setFormData] = useState({
     roadmap_name: "",
@@ -26,27 +28,36 @@ export default function ResearchTab({ isLight = false }) {
   });
 
   const userId = Number(formData.user_id || DEFAULT_USER_ID);
+  const userRole = localStorage.getItem("user_role") || "user";
 
   const refreshRoadmaps = async () => {
-    if (!userId || userId <= 0) return;
     try {
-      const [draftResult, roadmapResult] = await Promise.all([
-        fetchDraftSessions(userId),
-        fetchRoadmaps(userId),
-      ]);
-      setDraftSessions(draftResult?.data || []);
-      setRoadmaps(roadmapResult?.data || []);
+      if (userRole === "user") {
+        const roadmapResult = await fetchRoadmaps(null, "public");
+        setRoadmaps(roadmapResult?.data || []);
+        setDraftSessions([]);
+      } else {
+        if (!userId || userId <= 0) return;
+        const [draftResult, roadmapResult] = await Promise.all([
+          fetchDraftSessions(userId),
+          fetchRoadmaps(userId),
+        ]);
+        setDraftSessions(draftResult?.data || []);
+        setRoadmaps(roadmapResult?.data || []);
+      }
     } catch (err) {
       setError(err.message || "Failed to load roadmaps");
     }
   };
 
   useEffect(() => {
-    if (userId > 0) {
+    if (userRole === "user") {
+      refreshRoadmaps();
+    } else if (userId > 0) {
       localStorage.setItem("user_id", String(userId));
       refreshRoadmaps();
     }
-  }, [userId]);
+  }, [userId, userRole]);
 
   const handleChange = (e) => {
     const { name, value, type } = e.target;
@@ -78,38 +89,52 @@ export default function ResearchTab({ isLight = false }) {
     }
   };
 
+  // Thực hiện lọc local theo Roadmap Name và Repository URL
+  const filteredDrafts = draftSessions.filter((session) =>
+    (session.roadmap_name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (session.repository_url || "").toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredRoadmaps = roadmaps.filter((roadmap) =>
+    (roadmap.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (roadmap.repository_url || "").toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredDraftSessionsCount = filteredDrafts.length;
+  const filteredRoadmapsCount = filteredRoadmaps.length;
+
   const t = isLight ? {
-    pageBg:       "#f1f5f9",
-    surface:      "#ffffff",
-    surfaceRaised:"#f8fafc",
-    border:       "#e2e8f0",
+    pageBg: "#f1f5f9",
+    surface: "#ffffff",
+    surfaceRaised: "#f8fafc",
+    border: "#e2e8f0",
     borderStrong: "#cbd5e1",
-    accent:       "#059669",
-    accentDark:   "#047857",
-    accentBg:     "#ecfdf5",
+    accent: "#059669",
+    accentDark: "#047857",
+    accentBg: "#ecfdf5",
     accentBorder: "#6ee7b7",
-    textPrimary:  "#0f172a",
-    textSecondary:"#475569",
-    textMuted:    "#94a3b8",
-    inputBg:      "#ffffff",
-    inputBorder:  "#cbd5e1",
-    shadow:       "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)",
+    textPrimary: "#0f172a",
+    textSecondary: "#475569",
+    textMuted: "#94a3b8",
+    inputBg: "#ffffff",
+    inputBorder: "#cbd5e1",
+    shadow: "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)",
   } : {
-    pageBg:       "transparent",
-    surface:      "#0f172a",
-    surfaceRaised:"#111827",
-    border:       "rgba(255,255,255,0.07)",
+    pageBg: "transparent",
+    surface: "#0f172a",
+    surfaceRaised: "#111827",
+    border: "rgba(255,255,255,0.07)",
     borderStrong: "rgba(255,255,255,0.12)",
-    accent:       "#06b6d4",
-    accentDark:   "#0891b2",
-    accentBg:     "rgba(6,182,212,0.08)",
+    accent: "#06b6d4",
+    accentDark: "#0891b2",
+    accentBg: "rgba(6,182,212,0.08)",
     accentBorder: "rgba(6,182,212,0.3)",
-    textPrimary:  "#f1f5f9",
-    textSecondary:"#64748b",
-    textMuted:    "#475569",
-    inputBg:      "#0c1524",
-    inputBorder:  "rgba(255,255,255,0.08)",
-    shadow:       "none",
+    textPrimary: "#f1f5f9",
+    textSecondary: "#64748b",
+    textMuted: "#475569",
+    inputBg: "#0c1524",
+    inputBorder: "rgba(255,255,255,0.08)",
+    shadow: "none",
   };
 
   const inputStyle = {
@@ -153,7 +178,7 @@ export default function ResearchTab({ isLight = false }) {
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isLight ? "#fff" : "#22d3ee"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
               </svg>
             </div>
             <h2 style={{
@@ -180,141 +205,143 @@ export default function ResearchTab({ isLight = false }) {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "420px 1fr", gap: 18, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: userRole === "user" ? "1fr" : "420px 1fr", gap: 18, alignItems: "start" }}>
         {/* ── Left Form ── */}
-        <form onSubmit={handleCreateRoadmap} style={{
-          background: t.surface,
-          border: `1px solid ${isLight ? t.accentBorder : t.border}`,
-          borderRadius: 12, padding: 24,
-          boxShadow: isLight ? "0 4px 12px rgba(5,150,105,0.1)" : "none",
-          position: "relative", overflow: "hidden",
-        }}>
-          {/* Top stripe */}
-          <div style={{
-            position: "absolute", top: 0, left: 0, right: 0, height: 3,
-            background: "linear-gradient(90deg, #10b981, #06b6d4, #818cf8)",
-          }} />
-
-          <h3 style={{
-            margin: "0 0 20px", fontSize: 12, fontWeight: 700,
-            color: isLight ? "#059669" : "#22d3ee",
-            textTransform: "uppercase", letterSpacing: "0.1em",
+        {userRole !== "user" && (
+          <form onSubmit={handleCreateRoadmap} style={{
+            background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 12, padding: 24,
+            boxShadow: isLight ? "0 4px 12px rgba(5,150,105,0.1)" : "none",
+            position: "relative", overflow: "hidden",
           }}>
-            Create Research Roadmap
-          </h3>
+            {/* Top stripe */}
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "linear-gradient(90deg, #10b981, #06b6d4, #818cf8)",
+            }} />
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div>
-              <label style={labelStyle}>Roadmap Name</label>
-              <input
-                name="roadmap_name"
-                value={formData.roadmap_name}
-                onChange={handleChange}
-                required
-                placeholder="e.g. ResNet Roadmap"
-                className="tk-input"
-                style={inputStyle}
-              />
-            </div>
+            <h3 style={{
+              margin: "0 0 20px", fontSize: 12, fontWeight: 700,
+              color: isLight ? "#059669" : "#22d3ee",
+              textTransform: "uppercase", letterSpacing: "0.1em",
+            }}>
+              Create Research Roadmap
+            </h3>
 
-            <div>
-              <label style={labelStyle}>GitHub Repository</label>
-              <input
-                name="repository_url"
-                value={formData.repository_url}
-                onChange={handleChange}
-                required
-                placeholder="e.g. https://github.com/KaimingHe/resnet"
-                className="tk-input"
-                style={inputStyle}
-              />
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div>
-                <label style={labelStyle}>Level</label>
-                <select
-                  name="level"
-                  value={formData.level}
-                  onChange={handleChange}
-                  className="tk-select"
-                  style={{ ...inputStyle, cursor: "pointer" }}
-                >
-                  <option>Beginner</option>
-                  <option>Intermediate</option>
-                  <option>Advanced</option>
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Framework</label>
+                <label style={labelStyle}>Roadmap Name</label>
                 <input
-                  name="framework"
-                  value={formData.framework}
+                  name="roadmap_name"
+                  value={formData.roadmap_name}
                   onChange={handleChange}
+                  required
+                  placeholder="e.g. ResNet Roadmap"
                   className="tk-input"
                   style={inputStyle}
                 />
               </div>
-            </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
-                <label style={labelStyle}>Test Cases</label>
+                <label style={labelStyle}>GitHub Repository</label>
                 <input
-                  name="num_test_cases"
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={formData.num_test_cases}
+                  name="repository_url"
+                  value={formData.repository_url}
                   onChange={handleChange}
+                  required
+                  placeholder="e.g. https://github.com/KaimingHe/resnet"
                   className="tk-input"
                   style={inputStyle}
                 />
               </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Level</label>
+                  <select
+                    name="level"
+                    value={formData.level}
+                    onChange={handleChange}
+                    className="tk-select"
+                    style={{ ...inputStyle, cursor: "pointer" }}
+                  >
+                    <option>Beginner</option>
+                    <option>Intermediate</option>
+                    <option>Advanced</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Framework</label>
+                  <input
+                    name="framework"
+                    value={formData.framework}
+                    onChange={handleChange}
+                    className="tk-input"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Test Cases</label>
+                  <input
+                    name="num_test_cases"
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={formData.num_test_cases}
+                    onChange={handleChange}
+                    className="tk-input"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>User ID</label>
+                  <input
+                    name="user_id"
+                    type="number"
+                    min="1"
+                    value={formData.user_id}
+                    onChange={handleChange}
+                    className="tk-input"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
               <div>
-                <label style={labelStyle}>User ID</label>
-                <input
-                  name="user_id"
-                  type="number"
-                  min="1"
-                  value={formData.user_id}
+                <label style={labelStyle}>Additional Note</label>
+                <textarea
+                  name="user_note"
+                  rows={4}
+                  value={formData.user_note}
                   onChange={handleChange}
+                  placeholder="Focus on Residual Block; no need to rewrite train function..."
                   className="tk-input"
-                  style={inputStyle}
+                  style={{ ...inputStyle, resize: "none", lineHeight: 1.6 }}
                 />
               </div>
-            </div>
 
-            <div>
-              <label style={labelStyle}>Additional Note</label>
-              <textarea
-                name="user_note"
-                rows={4}
-                value={formData.user_note}
-                onChange={handleChange}
-                placeholder="Focus on Residual Block; no need to rewrite train function..."
-                className="tk-input"
-                style={{ ...inputStyle, resize: "none", lineHeight: 1.6 }}
-              />
+              <button
+                type="submit"
+                disabled={loading === "create"}
+                className="tk-primary"
+                style={{
+                  width: "100%", background: t.accent, border: "none", color: "#fff",
+                  borderRadius: 7, padding: "10px 20px",
+                  fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  transition: "background 0.15s",
+                  boxShadow: isLight ? "0 1px 3px rgba(5,150,105,0.35)" : "none",
+                  opacity: loading === "create" ? 0.6 : 1,
+                }}
+              >
+                {loading === "create" ? "Creating..." : "Create Proposed List"}
+              </button>
             </div>
-
-            <button
-              type="submit"
-              disabled={loading === "create"}
-              className="tk-primary"
-              style={{
-                width: "100%", background: t.accent, border: "none", color: "#fff",
-                borderRadius: 7, padding: "10px 20px",
-                fontSize: 12, fontWeight: 600, cursor: "pointer",
-                transition: "background 0.15s",
-                boxShadow: isLight ? "0 1px 3px rgba(5,150,105,0.35)" : "none",
-                opacity: loading === "create" ? 0.6 : 1,
-              }}
-            >
-              {loading === "create" ? "Creating..." : "Create Proposed List"}
-            </button>
-          </div>
-        </form>
+          </form>
+        )}
 
         {/* ── Right Panel ── */}
         <div style={{
@@ -326,19 +353,31 @@ export default function ResearchTab({ isLight = false }) {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
             <div>
               <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: t.textPrimary }}>
-                Existing Research Roadmaps
+                {userRole === "user" ? "Public Research Roadmaps" : "Existing Research Roadmaps"}
               </h3>
               <p style={{ margin: "2px 0 0", fontSize: 11, color: t.textMuted }}>
-                Drafts and saved roadmaps for user #{userId}
+                {userRole === "user" ? "Official learning roadmaps approved by Admin" : `Drafts and saved roadmaps for user #${userId}`}
               </p>
             </div>
             <span style={{ fontSize: 11, fontWeight: 700, color: t.textSecondary, background: isLight ? "#e2e8f0" : "rgba(255,255,255,0.07)", padding: "2px 8px", borderRadius: 10 }}>
-              {draftSessions.length + roadmaps.length} items
+              {filteredDrafts.length + filteredRoadmaps.length} items
             </span>
           </div>
 
+          {/* Ô Tìm Kiếm Roadmap mới */}
+          <div style={{ marginBottom: 16 }}>
+            <input
+              type="text"
+              placeholder="Search roadmaps or repository URL..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="tk-input"
+              style={{ ...inputStyle, padding: "8px 12px", fontSize: 12 }}
+            />
+          </div>
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {draftSessions.map((session) => (
+            {filteredDrafts.map((session) => (
               <button
                 key={`draft-${session.id}`}
                 type="button"
@@ -369,7 +408,7 @@ export default function ResearchTab({ isLight = false }) {
               </button>
             ))}
 
-            {roadmaps.map((roadmap) => (
+            {filteredRoadmaps.map((roadmap) => (
               <button
                 key={`roadmap-${roadmap.id}`}
                 type="button"
@@ -401,9 +440,9 @@ export default function ResearchTab({ isLight = false }) {
               </button>
             ))}
 
-            {draftSessions.length + roadmaps.length === 0 && (
-              <p style={{ margin: 0, fontSize: 12, color: t.textMuted, italic: true }}>
-                No research roadmaps yet.
+            {filteredDraftSessionsCount === 0 && filteredRoadmapsCount === 0 && (
+              <p style={{ margin: 0, fontSize: 12, color: t.textMuted, fontStyle: "italic" }}>
+                {searchQuery ? "No roadmaps match your search." : "No research roadmaps yet."}
               </p>
             )}
           </div>

@@ -6,14 +6,20 @@ import Editor from "@monaco-editor/react";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { fetchProblemContent, runProblem, submitProblem, fetchProblemSubmissions } from "../api";
+import { 
+  fetchProblemContent, 
+  runProblem, 
+  submitProblem, 
+  fetchProblemSubmissions, 
+  fetchStepDraftPreview 
+} from "../api";
 import DiscussionTab from "./tabs/DiscussionTab";
 
 const CONTENT_TABS = [
   { key: "statement", label: "Description" },
   { key: "theory", label: "Theory" },
   { key: "tutorial", label: "Editorial" },
-  { key: "solution", label: "Solution" }, // Integrated new Solution Tab
+  { key: "solution", label: "Solution" },
   { key: "submissions", label: "Submissions" },
   { key: "discussion", label: "Discussion" },
 ];
@@ -31,7 +37,8 @@ function normalizeEditorCode(raw) {
 export default function LiveCodingPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { problemId } = useParams();
+  const { problemId, stepId } = useParams();
+  const isPreview = !!stepId; // Xác định chế độ xem trước bản nháp
   const baseProblem = location.state?.problem;
 
   // Sync theme mode (light/dark) directly from home page
@@ -59,9 +66,11 @@ export default function LiveCodingPage() {
   const [error, setError] = useState("");
 
   const [code, setCode] = useState(() => {
-    const savedDraft = localStorage.getItem(`draft_code_${problemId}`);
-    if (savedDraft && savedDraft.trim() !== "" && savedDraft !== "undefined" && savedDraft !== "null") {
-      return savedDraft;
+    if (!isPreview) {
+      const savedDraft = localStorage.getItem(`draft_code_${problemId}`);
+      if (savedDraft && savedDraft.trim() !== "" && savedDraft !== "undefined" && savedDraft !== "null") {
+        return savedDraft;
+      }
     }
     return normalizeEditorCode(baseProblem?.coding_markdown || "");
   });
@@ -130,23 +139,44 @@ export default function LiveCodingPage() {
     setIsLoading(true);
     setError("");
     try {
-      const result = await fetchProblemContent(problemId, currentUserId);
-      const contentProblem = result?.data;
-      if (contentProblem) {
-        setProblem((prev) => ({
-          ...(prev || {}),
-          ...contentProblem,
-        }));
+      if (isPreview) {
+        // Tải từ API xem trước bản nháp
+        const result = await fetchStepDraftPreview(stepId);
+        const data = result?.data;
+        if (data) {
+          setProblem({
+            id: data.step_id,
+            name: data.name,
+            title: data.name,
+            statement_markdown: data.statement,
+            theory_markdown: data.theory,
+            tutorial_markdown: data.tutorial,
+            coding_markdown: data.coding,
+            solution_markdown: data.solution,
+            checker_markdown: data.checker
+          });
+          setCode(normalizeEditorCode(data.coding || ""));
+        }
+      } else {
+        // Tải từ API bài tập chính thức
+        const result = await fetchProblemContent(problemId, currentUserId);
+        const contentProblem = result?.data;
+        if (contentProblem) {
+          setProblem((prev) => ({
+            ...(prev || {}),
+            ...contentProblem,
+          }));
 
-        const savedDraft = localStorage.getItem(`draft_code_${problemId}`);
-        if (savedDraft && savedDraft.trim() !== "" && savedDraft !== "undefined" && savedDraft !== "null") {
-          setCode(savedDraft.replace(/\r\n/g, "\n"));
-        } else {
-          setCode(normalizeEditorCode(contentProblem.coding_markdown || ""));
+          const savedDraft = localStorage.getItem(`draft_code_${problemId}`);
+          if (savedDraft && savedDraft.trim() !== "" && savedDraft !== "undefined" && savedDraft !== "null") {
+            setCode(savedDraft.replace(/\r\n/g, "\n"));
+          } else {
+            setCode(normalizeEditorCode(contentProblem.coding_markdown || ""));
+          }
         }
       }
     } catch (err) {
-      setError(err.message || "Failed to load problem content");
+      setError(err.message || "Failed to load content");
     } finally {
       setIsLoading(false);
     }
@@ -154,7 +184,7 @@ export default function LiveCodingPage() {
 
   useEffect(() => {
     loadProblemContent();
-  }, [problemId, currentUserId]);
+  }, [problemId, stepId, isPreview, currentUserId]);
 
   const handleEditProblemInit = async () => {
     if (!problem) return;
@@ -277,6 +307,7 @@ export default function LiveCodingPage() {
   };
 
   const loadSubmissionsList = async () => {
+    if (isPreview) return; // Không tải lịch sử nộp trong chế độ xem thử nháp
     setIsSubmissionsLoading(true);
     try {
       const resp = await fetchProblemSubmissions(problemId, currentUserId);
@@ -292,28 +323,31 @@ export default function LiveCodingPage() {
     if (activeContentTab === "submissions") {
       loadSubmissionsList();
     }
-  }, [activeContentTab, problemId]);
+  }, [activeContentTab, problemId, isPreview]);
 
   useEffect(() => {
-    if (!problemId || !problem || isLoading) return;
+    if (isPreview || !problemId || !problem || isLoading) return;
 
     const delayDebounceFn = setTimeout(() => {
       localStorage.setItem(`draft_code_${problemId}`, code);
     }, 500);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [code, problemId, problem, isLoading]);
+  }, [code, problemId, problem, isLoading, isPreview]);
 
   const handleResetCode = () => {
     const confirmReset = window.confirm("Are you sure you want to reset your code to the default template?");
     if (confirmReset && problem) {
       const defaultCode = normalizeEditorCode(problem.coding_markdown || "");
       setCode(defaultCode);
-      localStorage.setItem(`draft_code_${problemId}`, defaultCode);
+      if (!isPreview) {
+        localStorage.setItem(`draft_code_${problemId}`, defaultCode);
+      }
     }
   };
 
   const handleRunCode = () => {
+    if (isPreview) return; // Bảo vệ: Không chạy code ở chế độ xem thử
     (async () => {
       setIsConsoleRunning(true);
       setConsoleOutput("Running first test case...\n");
@@ -335,7 +369,7 @@ export default function LiveCodingPage() {
   };
 
   const handleSubmitCode = () => {
-    // 3.1. Verify submission validity (source code cannot be empty)
+    if (isPreview) return; // Bảo vệ: Không nộp code ở chế độ xem thử
     if (!code || !code.trim()) {
       alert("Submission failed: Compiled source code cannot be empty.");
       return;
@@ -356,7 +390,6 @@ export default function LiveCodingPage() {
         });
         setConsoleOutput(parts.join('\n'));
 
-        // 3.1. Show success alert with score on UI
         alert(`Submission successful!\nScore obtained: ${resp.score}/100\nEvaluation result: ${resp.status.toUpperCase()}`);
 
         if (activeContentTab === "submissions") {
@@ -364,7 +397,6 @@ export default function LiveCodingPage() {
         }
       } catch (err) {
         setConsoleOutput(`Error: ${err.message}`);
-        // 3.1. Submission failed due to server communication error
         alert(`Submission failed. Please try again later.\nDetails: ${err.message}`);
       } finally {
         setIsConsoleRunning(false);
@@ -377,7 +409,9 @@ export default function LiveCodingPage() {
     if (confirmLoad) {
       const cleanCode = (submittedCode || "").replace(/\r\n/g, "\n");
       setCode(cleanCode);
-      localStorage.setItem(`draft_code_${problemId}`, cleanCode);
+      if (!isPreview) {
+        localStorage.setItem(`draft_code_${problemId}`, cleanCode);
+      }
     }
   };
 
@@ -407,7 +441,6 @@ export default function LiveCodingPage() {
       : "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20";
   };
 
-  // Modern console decorator helper for lively UI
   const formatConsoleOutput = (outputStr) => {
     if (!outputStr) return null;
     return outputStr.split("\n").map((line, idx) => {
@@ -484,13 +517,17 @@ export default function LiveCodingPage() {
     textTransform: "uppercase", marginBottom: 6,
   };
 
+  // Chỉ hiển thị các tab nội dung phù hợp cho chế độ Preview
+  const filteredTabs = isPreview
+    ? CONTENT_TABS.filter((tab) => tab.key !== "submissions" && tab.key !== "discussion")
+    : CONTENT_TABS;
+
   return (
     <div
       className="flex h-screen w-screen flex-col overflow-hidden select-none transition-colors duration-150"
       style={{ background: t.pageBg, color: t.textPrimary, fontFamily: "'Sora', sans-serif" }}
     >
       <style>{`
-        /* Custom scrollbar style */
         ::-webkit-scrollbar {
           width: 6px;
           height: 6px;
@@ -503,7 +540,6 @@ export default function LiveCodingPage() {
           border-radius: 4px;
         }
 
-        /* Markdown Typography */
         .markdown-preview h1, .markdown-preview h2, .markdown-preview h3, .markdown-preview h4 {
           color: ${isLight ? "#0f172a" : "#f8fafc"};
           font-weight: 700;
@@ -574,17 +610,17 @@ export default function LiveCodingPage() {
           <span className="text-xl">🤖</span>
           <div className="h-4 w-[1px]" style={{ background: t.border }} />
           <h1 className="text-sm font-bold tracking-wide" style={{ color: t.textPrimary }}>
-            {problem?.title || `Problem #${problemId}`}
+            {problem?.title || (isPreview ? "Draft Step Preview" : `Problem #${problemId}`)}
           </h1>
           <span
             className="rounded px-2 py-0.5 text-[10px] font-semibold"
             style={{ background: t.accentDim, color: t.accent, border: `1px solid ${t.accentBorder}` }}
           >
-            ML JUDGE
+            {isPreview ? "PREVIEW MODE" : "ML JUDGE"}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {(role === "admin" || (role === "contributor" && problem && problem.author_id === currentUserId)) && (
+          {!isPreview && (role === "admin" || (role === "contributor" && problem && problem.author_id === currentUserId)) && (
             <>
               <button
                 type="button"
@@ -625,7 +661,7 @@ export default function LiveCodingPage() {
           )}
           <button
             type="button"
-            onClick={() => navigate("/", { state: { activeTab: "PROBLEMS" } })}
+            onClick={() => navigate(-1)}
             className="tk-ghost-btn"
             style={{
               background: "transparent",
@@ -644,6 +680,30 @@ export default function LiveCodingPage() {
         </div>
       </header>
 
+      {/* WARNING BANNER FOR DRAFT PREVIEW MODE */}
+      {isPreview && (
+        <div
+          style={{
+            background: isLight ? "#fff7ed" : "rgba(245,158,11,0.12)",
+            borderBottom: `1px solid ${isLight ? "#fed7aa" : "rgba(245,158,11,0.2)"}`,
+            padding: "10px 20px",
+            textAlign: "center",
+            fontSize: 12,
+            fontWeight: 600,
+            color: isLight ? "#c2410c" : "#f97316",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+          }}
+        >
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span>Draft Preview Mode — All actions (Run and Submit) are permanently locked.</span>
+        </div>
+      )}
+
       {/* WORKSPACE AREA */}
       <main className="flex flex-1 w-full overflow-hidden p-2 gap-2" style={{ background: isLight ? "#f1f5f9" : "#080711" }}>
 
@@ -656,13 +716,13 @@ export default function LiveCodingPage() {
             className="flex"
             style={{ background: isLight ? "rgba(5,150,105,0.04)" : "rgba(255,255,255,0.02)", borderBottom: `1px solid ${t.border}` }}
           >
-            {CONTENT_TABS.map((tab) => (
+            {filteredTabs.map((tab) => (
               <button
                 key={tab.key}
                 type="button"
                 onClick={() => {
                   setActiveContentTab(tab.key);
-                  setIsEditingSolution(false); // Reset solution raw editor state on tab change
+                  setIsEditingSolution(false);
                 }}
                 style={{
                   padding: "12px 16px",
@@ -684,10 +744,8 @@ export default function LiveCodingPage() {
           {/* Internal Scrollable Content Box */}
           <div className="flex-1 overflow-y-auto p-5" style={{ background: isLight ? "#ffffff" : "rgba(0,0,0,0.08)" }}>
             {activeContentTab === "discussion" ? (
-              /* DISCUSSION TAB PANEL */
               <DiscussionTab problemId={problemId} isLight={isLight} />
             ) : activeContentTab === "submissions" ? (
-              /* SUBMISSIONS LIST PANEL */
               <div className="space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: t.textPrimary, fontFamily: "'JetBrains Mono', monospace" }}>Submission History</h3>
 
@@ -777,10 +835,8 @@ export default function LiveCodingPage() {
                 )}
               </div>
             ) : activeContentTab === "solution" ? (
-              /* SOLUTION SPACE PANEL */
               <div className="space-y-4">
                 {problem?.solution_markdown?.includes("Restricted Access") ? (
-                  /* 4.2.1. Sample solution is locked if the User has not solved the problem successfully */
                   <div className="text-center py-12">
                     <span style={{ fontSize: 44 }} className="block mb-4">🔒</span>
                     <h3 className="text-sm font-bold uppercase tracking-wider mb-2" style={{ color: t.textPrimary }}>
@@ -791,14 +847,12 @@ export default function LiveCodingPage() {
                     </p>
                   </div>
                 ) : (
-                  /* 4.2.2. Display sample solution content (For Admin/Contributor or users who solved it correctly) */
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.textPrimary, fontFamily: "'JetBrains Mono', monospace" }}>
                         Sample Solution Code (solution.py)
                       </h3>
 
-                      {/* Allow Admin to edit or Contributor to request update */}
                       {(role === "admin" || role === "contributor") && !isEditingSolution && (
                         <button
                           type="button"
@@ -842,7 +896,6 @@ export default function LiveCodingPage() {
                         <div className="flex gap-2">
                           {role === "admin" ? (
                             <>
-                              {/* 4.1.1. Admin saves the solution directly to static file */}
                               <button
                                 type="button"
                                 onClick={async () => {
@@ -878,7 +931,6 @@ export default function LiveCodingPage() {
                                 Save Solution
                               </button>
 
-                              {/* 4.1.1. Admin deletes the sample solution file */}
                               <button
                                 type="button"
                                 onClick={async () => {
@@ -914,7 +966,6 @@ export default function LiveCodingPage() {
                               </button>
                             </>
                           ) : (
-                            /* 4.1.2. Contributor creates a proposed solution in approval queue */
                             <button
                               type="button"
                               onClick={async () => {
@@ -972,7 +1023,6 @@ export default function LiveCodingPage() {
                         </div>
                       </div>
                     ) : (
-                      /* VS Code-style Solution Codespace Editor (Static read-only view) */
                       <div 
                         style={{ 
                           borderRadius: 10, 
@@ -982,7 +1032,6 @@ export default function LiveCodingPage() {
                           background: isLight ? "#ffffff" : "#1e1e1e"
                         }}
                       >
-                        {/* Mock VS Code Header Control Bar */}
                         <div 
                           style={{ 
                             display: "flex", 
@@ -1034,7 +1083,6 @@ export default function LiveCodingPage() {
                 )}
               </div>
             ) : (
-              /* OTHER TABS PANEL */
               <div className="markdown-preview text-sm">
                 <ReactMarkdown
                   remarkPlugins={[remarkMath]}
@@ -1091,7 +1139,7 @@ export default function LiveCodingPage() {
                 <button
                   type="button"
                   onClick={handleRunCode}
-                  disabled={isConsoleRunning}
+                  disabled={isConsoleRunning || isPreview}
                   className="tk-ghost-btn"
                   style={{
                     background: "transparent",
@@ -1101,9 +1149,9 @@ export default function LiveCodingPage() {
                     padding: "5px 12px",
                     fontSize: 11,
                     fontWeight: 600,
-                    cursor: "pointer",
+                    cursor: isPreview ? "not-allowed" : "pointer",
                     transition: "all 0.15s",
-                    opacity: isConsoleRunning ? 0.5 : 1,
+                    opacity: (isConsoleRunning || isPreview) ? 0.5 : 1,
                   }}
                 >
                   RUN
@@ -1111,19 +1159,23 @@ export default function LiveCodingPage() {
                 <button
                   type="button"
                   onClick={handleSubmitCode}
-                  disabled={isConsoleRunning}
+                  disabled={isConsoleRunning || isPreview}
                   style={{
-                    background: `linear-gradient(135deg, ${t.accent}, ${isLight ? "#047857" : "#059669"})`,
-                    color: "#fff",
+                    background: isPreview 
+                      ? "#334155" 
+                      : `linear-gradient(135deg, ${t.accent}, ${isLight ? "#047857" : "#059669"})`,
+                    color: isPreview ? "#94a3b8" : "#fff",
                     border: "none",
                     borderRadius: 6,
                     padding: "5px 14px",
                     fontSize: 11,
                     fontWeight: 700,
-                    cursor: "pointer",
-                    boxShadow: isLight ? "0 2px 8px rgba(5,150,105,0.25)" : "0 2px 8px rgba(16,185,129,0.2)",
+                    cursor: isPreview ? "not-allowed" : "pointer",
+                    boxShadow: isPreview 
+                      ? "none" 
+                      : (isLight ? "0 2px 8px rgba(5,150,105,0.25)" : "0 2px 8px rgba(16,185,129,0.2)"),
                     transition: "all 0.15s",
-                    opacity: isConsoleRunning ? 0.5 : 1,
+                    opacity: (isConsoleRunning || isPreview) ? 0.5 : 1,
                   }}
                 >
                   SUBMIT
@@ -1213,7 +1265,7 @@ export default function LiveCodingPage() {
               background: "linear-gradient(90deg, #10b981, #06b6d4, #818cf8)",
             }} />
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", justify_content: "space-between", marginBottom: 20 }}>
               <h3 style={{
                 margin: 0, fontSize: 14, fontWeight: 700,
                 color: isLight ? "#059669" : "#22d3ee",
@@ -1368,7 +1420,7 @@ export default function LiveCodingPage() {
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 12, borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", justify_content: "space-between", alignItems: "center" }}>
                   <label style={{ ...labelStyle, marginBottom: 0 }}>Test Cases Manager ({testcases.length})</label>
                   <button
                     type="button"
@@ -1399,7 +1451,7 @@ export default function LiveCodingPage() {
                         position: "relative"
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ display: "flex", justify_content: "space-between", alignItems: "center", marginBottom: 8 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: t.accent }}>Test Case #{idx + 1}</span>
                         <button
                           type="button"
@@ -1460,7 +1512,7 @@ export default function LiveCodingPage() {
                 </div>
               </div>
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 10 }}>
+              <div style={{ display: "flex", justify_content: "flex-end", gap: 10, paddingTop: 10 }}>
                 <button
                   type="button"
                   onClick={closeEditModal}
@@ -1498,7 +1550,7 @@ export default function LiveCodingPage() {
       {isDeleteConfirmOpen && createPortal(
         <div style={{
           position: "fixed", inset: 0, zIndex: 1300, display: "flex",
-          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          alignItems: "center", justify_content: "center", background: "rgba(0,0,0,0.65)",
           padding: 16
         }}>
           <div style={{
@@ -1519,7 +1571,7 @@ export default function LiveCodingPage() {
             <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
               Are you sure you want to delete the problem <strong>{problem?.name}</strong> permanently? This action cannot be undone.
             </p>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <div style={{ display: "flex", justify_content: "flex-end", gap: 10 }}>
               <button
                 type="button"
                 onClick={() => setIsDeleteConfirmOpen(false)}
@@ -1550,7 +1602,7 @@ export default function LiveCodingPage() {
       {successMessage && createPortal(
         <div style={{
           position: "fixed", inset: 0, zIndex: 1400, display: "flex",
-          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          alignItems: "center", justify_content: "center", background: "rgba(0,0,0,0.65)",
           padding: 16
         }}>
           <div style={{
@@ -1571,7 +1623,7 @@ export default function LiveCodingPage() {
             <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
               {successMessage}
             </p>
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <div style={{ display: "flex", justify_content: "flex-end" }}>
               <button
                 type="button"
                 onClick={() => {

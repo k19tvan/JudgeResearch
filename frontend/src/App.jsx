@@ -22,6 +22,7 @@ function App() {
 
         {/* Trang live coding */}
         <Route path="/livecoding/:problemId" element={<LiveCodingPage />} />
+        <Route path="/livecoding/draft/:stepId" element={<LiveCodingPage />} />
 
         {/* Trang chi tiết research roadmap */}
         <Route path="/research/draft/:sessionId" element={<ResearchRoadmapPage mode="draft" />} />

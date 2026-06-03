@@ -1648,7 +1648,19 @@ def get_my_requests(user_id: int, db: sqlite3.Connection = Depends(get_db)):
 
 # Usecase: Generate proposed problems from GitHub repository using AI (DeepWiki)
 @app.post("/api/problems/problems_from_repo", response_model=ProblemsFromRepoResponse)
-def get_problems_from_repo(payload: ProblemsFromRepo, db: sqlite3.Connection = Depends(get_db)):
+def get_problems_from_repo(
+    payload: ProblemsFromRepo, 
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    identity = get_authenticated_identity(authorization)
+    uid = identity.get("user_id")
+    cursor.execute("SELECT role FROM users WHERE id = ?", (uid,))
+    user_row = cursor.fetchone()
+    if not user_row or user_row["role"] not in ("admin", "contributor"):
+        raise HTTPException(status_code=403, detail="Only Contributors or Admins can propose roadmaps.")
+        
     try:
         owner, repo = get_repo_owner_and_name(payload.repository_url)
     except ValueError as e:
@@ -1895,7 +1907,11 @@ def finalize_session(payload: FinalizeSessionRequest, db: sqlite3.Connection = D
         raise HTTPException(status_code=500, detail=f"Finalize failed: {str(e)}")
 
 @app.get("/api/roadmaps/{roadmap_id}")
-def get_roadmap_detail(roadmap_id: int, db: sqlite3.Connection = Depends(get_db)):
+def get_roadmap_detail(
+    roadmap_id: int, 
+    authorization: Optional[str] = Header(None), 
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
         cursor.execute("""
@@ -1906,6 +1922,36 @@ def get_roadmap_detail(roadmap_id: int, db: sqlite3.Connection = Depends(get_db)
         roadmap = cursor.fetchone()
         if not roadmap:
             raise HTTPException(status_code=404, detail="Roadmap not found")
+
+        roadmap_status = roadmap["status"]
+        owner_id = roadmap["user_id"]
+
+        is_owner = False
+        is_admin = False
+        if authorization:
+            try:
+                identity = get_authenticated_identity(authorization)
+                uid = identity.get("user_id")
+                cursor.execute("SELECT role FROM users WHERE id = ?", (uid,))
+                ur = cursor.fetchone()
+                u_role = ur["role"] if ur else "user"
+                if int(uid) == int(owner_id):
+                    is_owner = True
+                if u_role == "admin":
+                    is_admin = True
+            except Exception:
+                pass
+
+        # Thực thi kiểm soát phân quyền chặt chẽ cho roadmap riêng tư:
+        if roadmap_status == "draft":
+            # Chỉ có tác giả tạo ra lộ trình nháp mới được xem
+            if not is_owner:
+                raise HTTPException(status_code=403, detail="Access denied. This roadmap draft is private to the contributor.")
+        elif roadmap_status == "pending":
+            # Trạng thái chờ duyệt: Chỉ tác giả hoặc Admin mới được xem
+            if not is_owner and not is_admin:
+                raise HTTPException(status_code=403, detail="Access denied. This roadmap is pending review.")
+        # Trạng thái 'public' thì ai cũng được xem
 
         cursor.execute("""
             SELECT rp.id AS step_id, rp.problem_id, rp.name, rp.order_index, rp.description, rp.target_module, rp.status AS step_status,
@@ -1942,28 +1988,75 @@ def get_roadmap_detail(roadmap_id: int, db: sqlite3.Connection = Depends(get_db)
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
 @app.get("/api/roadmaps")
-def list_roadmaps(user_id: int, db: sqlite3.Connection = Depends(get_db)):
+def list_roadmaps(
+    user_id: Optional[int] = None, 
+    filter_mode: Optional[str] = None, 
+    authorization: Optional[str] = Header(None), 
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
-        cursor.execute("""
-            SELECT r.id, r.name, r.repository_url, r.level, r.num_test_cases, r.status, r.created_at,
-                   COUNT(rp.problem_id) AS problem_count
-            FROM roadmaps r
-            LEFT JOIN roadmap_problems rp ON rp.roadmap_id = r.id
-            WHERE r.user_id = ?
-            GROUP BY r.id
-            ORDER BY r.id DESC
-        """, (user_id,))
+        current_role = "user"
+        current_user_id = None
+        if authorization:
+            try:
+                identity = get_authenticated_identity(authorization)
+                current_user_id = identity.get("user_id")
+                cursor.execute("SELECT role FROM users WHERE id = ?", (current_user_id,))
+                row = cursor.fetchone()
+                if row:
+                    current_role = row["role"]
+            except Exception:
+                pass
+
+        if filter_mode == "public" or current_role == "user" or (not current_user_id and not user_id):
+            cursor.execute("""
+                SELECT r.id, r.name, r.repository_url, r.level, r.num_test_cases, r.status, r.created_at,
+                       COUNT(rp.problem_id) AS problem_count
+                FROM roadmaps r
+                LEFT JOIN roadmap_problems rp ON rp.roadmap_id = r.id
+                WHERE r.status = 'public'
+                GROUP BY r.id
+                ORDER BY r.id DESC
+            """)
+        else:
+            target_uid = user_id if user_id is not None else current_user_id
+            if current_role == "admin":
+                # Admin: Chỉ xem public, pending và roadmap do chính mình tạo (bỏ xem private của contributor khác)
+                cursor.execute("""
+                    SELECT r.id, r.name, r.repository_url, r.level, r.num_test_cases, r.status, r.created_at,
+                           COUNT(rp.problem_id) AS problem_count
+                    FROM roadmaps r
+                    LEFT JOIN roadmap_problems rp ON rp.roadmap_id = r.id
+                    WHERE r.status IN ('public', 'pending') OR r.user_id = ?
+                    GROUP BY r.id
+                    ORDER BY r.id DESC
+                """, (current_user_id,))
+            else:
+                cursor.execute("""
+                    SELECT r.id, r.name, r.repository_url, r.level, r.num_test_cases, r.status, r.created_at,
+                           COUNT(rp.problem_id) AS problem_count
+                    FROM roadmaps r
+                    LEFT JOIN roadmap_problems rp ON rp.roadmap_id = r.id
+                    WHERE r.status = 'public' OR r.user_id = ?
+                    GROUP BY r.id
+                    ORDER BY r.id DESC
+                """, (target_uid,))
+                
         return {"status": "success", "data": [dict(row) for row in cursor.fetchall()]}
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
     
 @app.post("/api/roadmap-steps/{step_id}/create_detailedly")
-def create_problem_detailedly(step_id: int, db: sqlite3.Connection = Depends(get_db)):
+def create_problem_detailedly(
+    step_id: int, 
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     
     cursor.execute("""
-        SELECT rp.name, r.repository_url, r.name AS roadmap_name, r.num_test_cases
+        SELECT rp.name, r.repository_url, r.name AS roadmap_name, r.num_test_cases, r.user_id
         FROM roadmap_problems rp
         JOIN roadmaps r ON rp.roadmap_id = r.id
         WHERE rp.id = ?
@@ -1972,6 +2065,17 @@ def create_problem_detailedly(step_id: int, db: sqlite3.Connection = Depends(get
     
     if not record:
         raise HTTPException(status_code=404, detail="Step not found in active Roadmap.")
+        
+    owner_id = record["user_id"]
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    identity = get_authenticated_identity(authorization)
+    uid = identity.get("user_id")
+    cursor.execute("SELECT role FROM users WHERE id = ?", (uid,))
+    user_row = cursor.fetchone()
+    role = user_row["role"] if user_row else "user"
+    if role != "admin" and int(uid) != int(owner_id):
+        raise HTTPException(status_code=403, detail="Unauthorized. Owner or Admin only.")
         
     name = record["name"]
     repo_url = record["repository_url"]
@@ -2097,7 +2201,11 @@ def create_problem_detailedly(step_id: int, db: sqlite3.Connection = Depends(get
         raise HTTPException(status_code=500, detail=f"Draft generation failed: {str(e)}")
     
 @app.post("/api/roadmap-steps/{step_id}/save_to_problem")
-def save_step_to_problem(step_id: int, db: sqlite3.Connection = Depends(get_db)):
+def save_step_to_problem(
+    step_id: int, 
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
         cursor.execute("""
@@ -2110,6 +2218,18 @@ def save_step_to_problem(step_id: int, db: sqlite3.Connection = Depends(get_db))
         
         if not record:
             raise HTTPException(status_code=404, detail="Step not found.")
+            
+        owner_id = record["user_id"]
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        identity = get_authenticated_identity(authorization)
+        uid = identity.get("user_id")
+        cursor.execute("SELECT role FROM users WHERE id = ?", (uid,))
+        user_row = cursor.fetchone()
+        role = user_row["role"] if user_row else "user"
+        if role != "admin" and int(uid) != int(owner_id):
+            raise HTTPException(status_code=403, detail="Unauthorized. Owner or Admin only.")
+            
         if record["status"] != "generated":
             raise HTTPException(status_code=400, detail="Please click 'Create Detailedly' first before saving.")
             
@@ -2191,7 +2311,276 @@ def save_step_to_problem(step_id: int, db: sqlite3.Connection = Depends(get_db))
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to save: {str(e)}")
-    
+
+@app.get("/api/roadmap-steps/{step_id}/preview")
+def preview_step_draft(
+    step_id: int, 
+    authorization: Optional[str] = Header(None), 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    cursor.execute("""
+        SELECT rp.name, rp.status, r.user_id 
+        FROM roadmap_problems rp
+        JOIN roadmaps r ON rp.roadmap_id = r.id
+        WHERE rp.id = ?
+    """, (step_id,))
+    record = cursor.fetchone()
+    if not record:
+        raise HTTPException(status_code=404, detail="Step not found.")
+        
+    owner_id = record["user_id"]
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    identity = get_authenticated_identity(authorization)
+    uid = identity.get("user_id")
+    cursor.execute("SELECT role FROM users WHERE id = ?", (uid,))
+    user_row = cursor.fetchone()
+    role = user_row["role"] if user_row else "user"
+    if role != "admin" and int(uid) != int(owner_id):
+        raise HTTPException(status_code=403, detail="Unauthorized. Owner or Admin only.")
+        
+    draft_folder = f"{storage_path}draft_problems/{step_id}"
+    if not os.path.exists(draft_folder):
+        raise HTTPException(status_code=404, detail="Draft folder not found. Please generate materials first.")
+        
+    def read_file_content(filename):
+        filepath = os.path.join(draft_folder, filename)
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception:
+                return ""
+        return ""
+        
+    inputs_folder = os.path.join(draft_folder, "inputs")
+    inputs_list = []
+    if os.path.exists(inputs_folder):
+        for fname in sorted(os.listdir(inputs_folder)):
+            if fname.endswith(".json"):
+                c = read_file_content(os.path.join("inputs", fname))
+                inputs_list.append({"filename": fname, "content": c})
+                
+    return {
+        "status": "success",
+        "data": {
+            "step_id": step_id,
+            "name": record["name"],
+            "statement": read_file_content("statement.md"),
+            "theory": read_file_content("theory.md"),
+            "tutorial": read_file_content("tutorial.md"),
+            "solution": read_file_content("solution.py"),
+            "coding": read_file_content("coding.py"),
+            "checker": read_file_content("checker.py"),
+            "testcases": inputs_list
+        }
+    }
+
+@app.delete("/api/roadmaps/{roadmap_id}")
+def delete_roadmap(
+    roadmap_id: int, 
+    authorization: Optional[str] = Header(None), 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT user_id, status FROM roadmaps WHERE id = ?", (roadmap_id,))
+        roadmap = cursor.fetchone()
+        if not roadmap:
+            raise HTTPException(status_code=404, detail="Roadmap not found")
+            
+        owner_id = roadmap["user_id"]
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        identity = get_authenticated_identity(authorization)
+        uid = identity.get("user_id")
+        cursor.execute("SELECT role FROM users WHERE id = ?", (uid,))
+        user_row = cursor.fetchone()
+        role = user_row["role"] if user_row else "user"
+        
+        if role != "admin" and int(uid) != int(owner_id):
+            raise HTTPException(status_code=403, detail="Unauthorized to delete this roadmap.")
+            
+        # Get step IDs to delete physical draft folders
+        cursor.execute("SELECT id, status FROM roadmap_problems WHERE roadmap_id = ?", (roadmap_id,))
+        steps = cursor.fetchall()
+        for step in steps:
+            if step["status"] == "generated":
+                draft_folder = f"{storage_path}draft_problems/{step['id']}"
+                if os.path.exists(draft_folder):
+                    try:
+                        shutil.rmtree(draft_folder)
+                    except Exception as ex:
+                        print(f"[Error] Failed to remove draft folder {draft_folder}: {str(ex)}")
+                        
+        cursor.execute("DELETE FROM roadmap_problems WHERE roadmap_id = ?", (roadmap_id,))
+        cursor.execute("DELETE FROM roadmaps WHERE id = ?", (roadmap_id,))
+        db.commit()
+        return {"status": "success", "message": "Roadmap deleted successfully."}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database execution error: {str(e)}")
+
+@app.post("/api/roadmaps/{roadmap_id}/request-approval")
+def request_roadmap_approval(
+    roadmap_id: int, 
+    authorization: Optional[str] = Header(None), 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT user_id, status FROM roadmaps WHERE id = ?", (roadmap_id,))
+        roadmap = cursor.fetchone()
+        if not roadmap:
+            raise HTTPException(status_code=404, detail="Roadmap not found")
+            
+        owner_id = roadmap["user_id"]
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        identity = get_authenticated_identity(authorization)
+        uid = identity.get("user_id")
+        
+        if int(uid) != int(owner_id):
+            raise HTTPException(status_code=403, detail="Unauthorized. Only the owner can request approval.")
+            
+        if roadmap["status"] == "public":
+            raise HTTPException(status_code=400, detail="Roadmap is already public")
+            
+        cursor.execute("UPDATE roadmaps SET status = 'pending', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (roadmap_id,))
+        db.commit()
+        return {"status": "success", "message": "Approval request submitted successfully"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@app.post("/api/roadmaps/{roadmap_id}/approve")
+def approve_roadmap(
+    roadmap_id: int, 
+    authorization: Optional[str] = Header(None), 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        require_admin_user(cursor, authorization)
+        
+        cursor.execute("SELECT id FROM roadmaps WHERE id = ?", (roadmap_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Roadmap not found")
+            
+        # 1. Cập nhật trạng thái Roadmap thành public
+        cursor.execute("UPDATE roadmaps SET status = 'public', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (roadmap_id,))
+        
+        # 2. Cập nhật toàn bộ các bài tập thuộc Roadmap này thành public và APPROVED
+        cursor.execute("""
+            UPDATE problems 
+            SET is_public = 1, request_status = 'APPROVED'
+            WHERE id IN (
+                SELECT problem_id 
+                FROM roadmap_problems 
+                WHERE roadmap_id = ? AND problem_id IS NOT NULL
+            )
+        """, (roadmap_id,))
+        
+        db.commit()
+        return {"status": "success", "message": "Roadmap approved and published successfully along with all its saved problems."}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@app.post("/api/roadmaps/{roadmap_id}/reject")
+def reject_roadmap(
+    roadmap_id: int, 
+    authorization: Optional[str] = Header(None), 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        require_admin_user(cursor, authorization)
+        
+        cursor.execute("SELECT id FROM roadmaps WHERE id = ?", (roadmap_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Roadmap not found")
+            
+        cursor.execute("UPDATE roadmaps SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (roadmap_id,))
+        db.commit()
+        return {"status": "success", "message": "Roadmap approval request rejected"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@app.post("/api/roadmaps/{roadmap_id}/publish")
+def publish_roadmap_directly(
+    roadmap_id: int, 
+    authorization: Optional[str] = Header(None), 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        require_admin_user(cursor, authorization)
+        
+        cursor.execute("SELECT id FROM roadmaps WHERE id = ?", (roadmap_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Roadmap not found")
+            
+        # 1. Cập nhật trạng thái Roadmap thành public trực tiếp
+        cursor.execute("UPDATE roadmaps SET status = 'public', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (roadmap_id,))
+        
+        # 2. Cập nhật toàn bộ các bài tập thuộc Roadmap này thành public và APPROVED
+        cursor.execute("""
+            UPDATE problems 
+            SET is_public = 1, request_status = 'APPROVED'
+            WHERE id IN (
+                SELECT problem_id 
+                FROM roadmap_problems 
+                WHERE roadmap_id = ? AND problem_id IS NOT NULL
+            )
+        """, (roadmap_id,))
+        
+        db.commit()
+        return {"status": "success", "message": "Roadmap published directly along with all its saved problems."}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@app.post("/api/roadmaps/{roadmap_id}/unpublish")
+def unpublish_roadmap(
+    roadmap_id: int, 
+    authorization: Optional[str] = Header(None), 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        cursor.execute("SELECT user_id FROM roadmaps WHERE id = ?", (roadmap_id,))
+        roadmap = cursor.fetchone()
+        if not roadmap:
+            raise HTTPException(status_code=404, detail="Roadmap not found")
+            
+        owner_id = roadmap["user_id"]
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        identity = get_authenticated_identity(authorization)
+        uid = identity.get("user_id")
+        cursor.execute("SELECT role FROM users WHERE id = ?", (uid,))
+        user_row = cursor.fetchone()
+        role = user_row["role"] if user_row else "user"
+        
+        if role != "admin" and int(uid) != int(owner_id):
+            raise HTTPException(status_code=403, detail="Unauthorized to unpublish this roadmap.")
+            
+        cursor.execute("UPDATE roadmaps SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (roadmap_id,))
+        db.commit()
+        return {"status": "success", "message": "Roadmap unpublished to draft successfully"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
 @app.get("/api/problems/draft_sessions/{session_id}")
 def get_draft_session_detail(session_id: int, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()

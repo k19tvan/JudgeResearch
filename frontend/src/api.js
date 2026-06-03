@@ -201,8 +201,15 @@ export const fetchRoadmap = async (roadmapId) => {
   return response.json();
 };
 
-export const fetchRoadmaps = async (userId) => {
-  const response = await customFetch(`${ROADMAP_API_URL}?user_id=${userId}`);
+export const fetchRoadmaps = async (userId = null, filterMode = null) => {
+  let url = `${ROADMAP_API_URL}`;
+  const params = [];
+  if (userId) params.push(`user_id=${userId}`);
+  if (filterMode) params.push(`filter_mode=${filterMode}`);
+  if (params.length > 0) {
+    url += `?${params.join("&")}`;
+  }
+  const response = await customFetch(url);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -475,5 +482,80 @@ export const rejectProblem = async (problemId) => {
     throw new Error(errorData.detail || "Reject problem failed");
   }
 
+  return response.json();
+};
+
+export const deleteRoadmap = async (roadmapId) => {
+  const response = await customFetch(`${ROADMAP_API_URL}/${roadmapId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Delete roadmap failed");
+  }
+  return response.json();
+};
+
+export const requestRoadmapApproval = async (roadmapId) => {
+  const response = await customFetch(`${ROADMAP_API_URL}/${roadmapId}/request-approval`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Request approval failed");
+  }
+  return response.json();
+};
+
+export const approveRoadmap = async (roadmapId) => {
+  const response = await customFetch(`${ROADMAP_API_URL}/${roadmapId}/approve`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Approve roadmap failed");
+  }
+  return response.json();
+};
+
+export const rejectRoadmap = async (roadmapId) => {
+  const response = await customFetch(`${ROADMAP_API_URL}/${roadmapId}/reject`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Reject roadmap failed");
+  }
+  return response.json();
+};
+
+export const publishRoadmapDirectly = async (roadmapId) => {
+  const response = await customFetch(`${ROADMAP_API_URL}/${roadmapId}/publish`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Publish roadmap failed");
+  }
+  return response.json();
+};
+
+export const unpublishRoadmap = async (roadmapId) => {
+  const response = await customFetch(`${ROADMAP_API_URL}/${roadmapId}/unpublish`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Unpublish roadmap failed");
+  }
+  return response.json();
+};
+
+export const fetchStepDraftPreview = async (stepId) => {
+  const response = await customFetch(`${ROADMAP_STEP_API_URL}/${stepId}/preview`);
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Fetch step preview failed");
+  }
   return response.json();
 };

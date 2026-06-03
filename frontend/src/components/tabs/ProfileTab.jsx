@@ -30,6 +30,10 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
 
+  // States quản lý việc ẩn/hiện form nhập mã kích hoạt quyền hạn
+  const [showContributorForm, setShowContributorForm] = useState(false);
+  const [showAdminForm, setShowAdminForm] = useState(false);
+
   const userId = localStorage.getItem("user_id");
 
   const t = isLight ? {
@@ -408,6 +412,14 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
         }
         .tk-primary:hover { background: ${t.accentDark} !important; }
         .tk-ghost:hover { background: ${isLight ? "#f1f5f9" : "rgba(255,255,255,0.05)"} !important; }
+        
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.18s ease-out forwards;
+        }
       `}</style>
 
       {/* ── Page Header ── */}
@@ -631,7 +643,7 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
         </div>
       )}
 
-      {/* ── Elevate Privileges Panel ── */}
+      {/* ── Elevate Privileges Panel (Cân đối dạng ngăn thả mượt mà) ── */}
       <div style={{
         background: t.surface,
         border: `1px solid ${t.border}`,
@@ -646,86 +658,165 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
           Elevate Privileges
         </div>
 
-        <div style={{ padding: 20 }}>
+        <div style={{ padding: "8px 20px 20px" }}>
           {profile?.role === "user" && (
-            <div style={{ display: "flex", gap: 16, borderBottom: `1px solid ${t.border}`, paddingBottom: 20, marginBottom: 20, flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: 260 }}>
-                <p style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 700, color: t.textPrimary }}>Become a Contributor</p>
-                <p style={{ margin: 0, fontSize: 11, color: t.textSecondary, lineHeight: 1.5 }}>
-                  Enter a contributor invitation code to gain problem creation capabilities and research roadmaps access.
-                </p>
+            <div style={{ 
+              borderBottom: `1px solid ${t.border}`, 
+              padding: "14px 0",
+              marginBottom: 4 
+            }}>
+              <div 
+                onClick={() => setShowContributorForm(!showContributorForm)}
+                style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  justifyContent: "space-between", 
+                  cursor: "pointer",
+                }}
+              >
+                <div style={{ paddingRight: 16 }}>
+                  <p style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 700, color: t.textPrimary }}>
+                    Become a Contributor
+                  </p>
+                  <p style={{ margin: 0, fontSize: 11, color: t.textSecondary, lineHeight: 1.5 }}>
+                    Gain problem creation capabilities and research roadmaps access.
+                  </p>
+                </div>
+                <span style={{ 
+                  fontSize: 12, 
+                  color: t.textSecondary,
+                  transform: showContributorForm ? "rotate(180deg)" : "rotate(0deg)",
+                  transition: "transform 0.2s ease-in-out",
+                  userSelect: "none",
+                  padding: "4px 8px"
+                }}>
+                  ▼
+                </span>
               </div>
-              <form onSubmit={handleBecomeContributor} style={{ width: 280, display: "flex", flexDirection: "column", gap: 10 }}>
-                <label style={labelStyle}>
-                  Contributor Key
-                  <input
-                    type="password"
-                    required
-                    value={contributorSecretKey}
-                    onChange={(e) => setContributorSecretKey(e.target.value)}
-                    className="tk-input"
-                    style={{ ...inputStyle, padding: "7px 10px", marginTop: 4 }}
-                  />
-                </label>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="tk-primary"
-                  style={{
-                    background: t.accent, border: "none", color: "#fff",
-                    borderRadius: 7, padding: "8px 12px",
-                    fontSize: 11, fontWeight: 700, cursor: "pointer",
-                    textTransform: "uppercase", letterSpacing: "0.04em"
+
+              {showContributorForm && (
+                <form 
+                  onSubmit={handleBecomeContributor} 
+                  className="animate-fade-in"
+                  style={{ 
+                    marginTop: 16, 
+                    display: "flex", 
+                    gap: 16, 
+                    alignItems: "flex-end", 
+                    flexWrap: "wrap" 
                   }}
                 >
-                  Activate Contributor
-                </button>
-              </form>
+                  <div style={{ flex: 1, minWidth: 240 }}>
+                    <label style={{ ...labelStyle, marginBottom: 6 }}>Contributor Key</label>
+                    <input
+                      type="password"
+                      required
+                      value={contributorSecretKey}
+                      onChange={(e) => setContributorSecretKey(e.target.value)}
+                      className="tk-input"
+                      placeholder="Enter contributor invitation key..."
+                      style={inputStyle}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="tk-primary"
+                    style={{
+                      background: t.accent, border: "none", color: "#fff",
+                      borderRadius: 7, padding: "9px 18px",
+                      fontSize: 11, fontWeight: 700, cursor: "pointer",
+                      textTransform: "uppercase", letterSpacing: "0.04em"
+                    }}
+                  >
+                    Activate
+                  </button>
+                </form>
+              )}
             </div>
           )}
 
           {profile?.role !== "admin" ? (
-            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: 260 }}>
-                <p style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 700, color: t.textPrimary }}>Activate Admin Access</p>
-                <p style={{ margin: 0, fontSize: 11, color: t.textSecondary, lineHeight: 1.5 }}>
-                  If you have an invitation key or system master token, enter it to gain admin roles to approve requests.
-                </p>
+            <div style={{ padding: "14px 0 4px" }}>
+              <div 
+                onClick={() => setShowAdminForm(!showAdminForm)}
+                style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  justifyContent: "space-between", 
+                  cursor: "pointer",
+                }}
+              >
+                <div style={{ paddingRight: 16 }}>
+                  <p style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 700, color: t.textPrimary }}>
+                    Activate Admin Access
+                  </p>
+                  <p style={{ margin: 0, fontSize: 11, color: t.textSecondary, lineHeight: 1.5 }}>
+                    Gain system administrator privileges to review and approve community assets.
+                  </p>
+                </div>
+                <span style={{ 
+                  fontSize: 12, 
+                  color: t.textSecondary,
+                  transform: showAdminForm ? "rotate(180deg)" : "rotate(0deg)",
+                  transition: "transform 0.2s ease-in-out",
+                  userSelect: "none",
+                  padding: "4px 8px"
+                }}>
+                  ▼
+                </span>
               </div>
-              <form onSubmit={handleBecomeAdmin} style={{ width: 280, display: "flex", flexDirection: "column", gap: 10 }}>
-                <label style={labelStyle}>
-                  Admin Secret Key
-                  <input
-                    type="password"
-                    required
-                    value={secretKey}
-                    onChange={(e) => setSecretKey(e.target.value)}
-                    className="tk-input"
-                    style={{ ...inputStyle, padding: "7px 10px", marginTop: 4 }}
-                  />
-                </label>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="tk-primary"
-                  style={{
-                    background: t.accent, border: "none", color: "#fff",
-                    borderRadius: 7, padding: "8px 12px",
-                    fontSize: 11, fontWeight: 700, cursor: "pointer",
-                    textTransform: "uppercase", letterSpacing: "0.04em"
+
+              {showAdminForm && (
+                <form 
+                  onSubmit={handleBecomeAdmin} 
+                  className="animate-fade-in"
+                  style={{ 
+                    marginTop: 16, 
+                    display: "flex", 
+                    gap: 16, 
+                    alignItems: "flex-end", 
+                    flexWrap: "wrap" 
                   }}
                 >
-                  Activate Admin
-                </button>
-              </form>
+                  <div style={{ flex: 1, minWidth: 240 }}>
+                    <label style={{ ...labelStyle, marginBottom: 6 }}>Admin Secret Key</label>
+                    <input
+                      type="password"
+                      required
+                      value={secretKey}
+                      onChange={(e) => setSecretKey(e.target.value)}
+                      className="tk-input"
+                      placeholder="Enter admin system master token..."
+                      style={inputStyle}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="tk-primary"
+                    style={{
+                      background: t.accent, border: "none", color: "#fff",
+                      borderRadius: 7, padding: "9px 18px",
+                      fontSize: 11, fontWeight: 700, cursor: "pointer",
+                      textTransform: "uppercase", letterSpacing: "0.04em"
+                    }}
+                  >
+                    Activate
+                  </button>
+                </form>
+              )}
             </div>
           ) : (
-            <div style={{
-              display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: 8,
-              background: isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)",
-              border: `1px solid ${isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)"}`,
-              color: isLight ? "#065f46" : "#34d399"
-            }}>
+            <div 
+              className="animate-fade-in"
+              style={{
+                display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: 8,
+                background: isLight ? "#ecfdf5" : "rgba(16,185,129,0.08)",
+                border: `1px solid ${isLight ? "#6ee7b7" : "rgba(16,185,129,0.2)"}`,
+                color: isLight ? "#065f46" : "#34d399", marginTop: 8
+              }}
+            >
               <span style={{ fontSize: 14 }}>🛡️</span>
               <div>
                 <p style={{ margin: 0, fontSize: 12, fontWeight: 700, textTransform: "uppercase" }}>Admin Privileges Active</p>
