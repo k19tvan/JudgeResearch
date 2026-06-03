@@ -2,11 +2,16 @@
 import React, { useEffect, useState } from "react";
 
 export default function AdminQueueTab({ isLight = false }) {
+  const [activeQueueTab, setActiveQueueTab] = useState("problems"); // 'problems' hoặc 'solutions'
   const [requests, setRequests] = useState([]);
+  const [solutionProposals, setSolutionProposals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
+  const [expandedProposalId, setExpandedProposalId] = useState(null);
+
   const adminId = localStorage.getItem("user_id");
 
+  // Load danh sách bài tập công khai chờ duyệt
   const loadPendingRequests = async () => {
     setLoading(true);
     try {
@@ -20,11 +25,30 @@ export default function AdminQueueTab({ isLight = false }) {
     }
   };
 
-  useEffect(() => {
-    loadPendingRequests();
-  }, []);
+  // Load danh sách đề xuất lời giải từ Contributor chờ kiểm duyệt
+  const loadSolutionProposals = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`http://localhost:21081/api/admin/solution-proposals?admin_id=${adminId}`);
+      const result = await response.json();
+      setSolutionProposals(result?.data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const handleAction = async (problemId, action) => {
+  useEffect(() => {
+    if (activeQueueTab === "problems") {
+      loadPendingRequests();
+    } else {
+      loadSolutionProposals();
+    }
+  }, [activeQueueTab]);
+
+  // Hành động kiểm duyệt bài tập công khai
+  const handleProblemAction = async (problemId, action) => {
     setActionLoading(problemId);
     try {
       const response = await fetch(`http://localhost:21081/api/problems/${problemId}/${action}`, {
@@ -42,38 +66,61 @@ export default function AdminQueueTab({ isLight = false }) {
     }
   };
 
+  // Hành động kiểm duyệt đề xuất lời giải
+  const handleProposalAction = async (proposalId, action) => {
+    setActionLoading(proposalId);
+    try {
+      const response = await fetch(`http://localhost:21081/api/admin/solution-proposals/${proposalId}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ admin_id: Number(adminId), action }),
+      });
+      if (response.ok) {
+        alert(action === "approve" ? "Đã duyệt giải pháp này thành công!" : "Đã bác bỏ đề xuất thành công!");
+        await loadSolutionProposals();
+      } else {
+        const res = await response.json();
+        alert(res.detail || "Lỗi xử lý đề xuất");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const t = isLight ? {
-    pageBg:       "#f1f5f9",
-    surface:      "#ffffff",
-    surfaceRaised:"#f8fafc",
-    border:       "#e2e8f0",
+    pageBg: "#f1f5f9",
+    surface: "#ffffff",
+    surfaceRaised: "#f8fafc",
+    border: "#e2e8f0",
     borderStrong: "#cbd5e1",
-    accent:       "#059669",
-    accentDark:   "#047857",
-    accentBg:     "#ecfdf5",
+    accent: "#059669",
+    accentDark: "#047857",
+    accentBg: "#ecfdf5",
     accentBorder: "#6ee7b7",
-    tableHead:    "#065f46",
-    tableHeadBg:  "#059669",
-    textPrimary:  "#0f172a",
-    textSecondary:"#475569",
-    textMuted:    "#94a3b8",
-    shadow:       "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)",
+    tableHead: "#065f46",
+    tableHeadBg: "#059669",
+    textPrimary: "#0f172a",
+    textSecondary: "#475569",
+    textMuted: "#94a3b8",
+    shadow: "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)",
   } : {
-    pageBg:       "transparent",
-    surface:      "#0f172a",
-    surfaceRaised:"#111827",
-    border:       "rgba(255,255,255,0.07)",
+    pageBg: "transparent",
+    surface: "#0f172a",
+    surfaceRaised: "#111827",
+    border: "rgba(255,255,255,0.07)",
     borderStrong: "rgba(255,255,255,0.12)",
-    accent:       "#06b6d4",
-    accentDark:   "#0891b2",
-    accentBg:     "rgba(6,182,212,0.08)",
+    accent: "#06b6d4",
+    accentDark: "#0891b2",
+    accentBg: "rgba(6,182,212,0.08)",
     accentBorder: "rgba(6,182,212,0.3)",
-    tableHead:    "#e2e8f0",
-    tableHeadBg:  "rgba(255,255,255,0.03)",
-    textPrimary:  "#f1f5f9",
+    tableHead: "#e2e8f0",
+    tableHeadBg: "rgba(255,255,255,0.03)",
+    textPrimary: "#f1f5f9",
     textSecondary: "#64748b",
-    textMuted:    "#475569",
-    shadow:       "none",
+    textMuted: "#475569",
+    shadow: "none",
   };
 
   return (
@@ -107,136 +154,316 @@ export default function AdminQueueTab({ isLight = false }) {
             </h2>
           </div>
           <p style={{ margin: 0, fontSize: 12, color: t.textSecondary, lineHeight: 1.5, paddingLeft: 40 }}>
-            Approve or reject community requests to make private exercises public.
+            Approve or reject requests from the community and contributors.
           </p>
         </div>
       </div>
 
-      {loading ? (
-        <div style={{
-          background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
-        }}>
-          <p className="animate-pulse">Loading approval queue...</p>
-        </div>
-      ) : requests.length === 0 ? (
-        <div style={{
-          background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
-          boxShadow: t.shadow,
-        }}>
-          <div style={{ marginBottom: 8, opacity: 0.35, fontSize: 28 }}>✅</div>
-          All caught up! No pending requests.
-        </div>
-      ) : (
-        <div style={{
-          background: t.surface,
-          border: `1px solid ${t.border}`,
-          borderRadius: 12, overflow: "hidden",
-          boxShadow: t.shadow,
-        }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
-            <thead>
-              <tr style={{
-                background: isLight ? t.tableHeadBg : t.tableHeadBg,
-                borderBottom: `1px solid ${isLight ? t.accentDark + "55" : t.border}`,
-              }}>
-                {["ID", "Problem Name", "Author", "Requested Date", "Actions"].map((h, i) => (
-                  <th key={i} style={{
-                    padding: "12px 20px",
-                    textAlign: i === 4 ? "center" : "left",
-                    fontSize: 10, fontWeight: 700, letterSpacing: "0.09em",
-                    textTransform: "uppercase",
-                    color: isLight ? "#fff" : t.textSecondary,
-                    fontFamily: "'DM Mono', monospace",
-                  }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {requests.map((req, idx) => (
-                <tr
-                  key={req.id}
-                  style={{
-                    borderBottom: `1px solid ${isLight ? "#e2e8f0" : "rgba(255,255,255,0.04)"}`,
-                    background: idx % 2 === 0
-                      ? "transparent"
-                      : (isLight ? "#f8fafc" : "rgba(255,255,255,0.01)"),
-                  }}
-                >
-                  <td style={{ padding: "14px 20px", width: 120 }}>
-                    <span style={{
-                      fontFamily: "'DM Mono', monospace", fontSize: 11,
-                      color: isLight ? "#059669" : "#475569",
-                      letterSpacing: "0.02em", fontWeight: 600,
+      {/* ── Sub-navigation Tabs (Điều hướng song song) ── */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        <button
+          type="button"
+          onClick={() => { setActiveQueueTab("problems"); setExpandedProposalId(null); }}
+          style={{
+            padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            background: activeQueueTab === "problems" ? t.accent : (isLight ? "#e2e8f0" : "rgba(255,255,255,0.04)"),
+            color: activeQueueTab === "problems" ? "#fff" : t.textSecondary,
+            border: "none", transition: "all 0.15s"
+          }}
+        >
+          Problem Requests ({requests.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => { setActiveQueueTab("solutions"); setExpandedProposalId(null); }}
+          style={{
+            padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            background: activeQueueTab === "solutions" ? t.accent : (isLight ? "#e2e8f0" : "rgba(255,255,255,0.04)"),
+            color: activeQueueTab === "solutions" ? "#fff" : t.textSecondary,
+            border: "none", transition: "all 0.15s"
+          }}
+        >
+          Solution Proposals ({solutionProposals.length})
+        </button>
+      </div>
+
+      {activeQueueTab === "problems" ? (
+        /* ── HIỂN THỊ HÀNG CHỜ YÊU CẦU CÔNG KHAI BÀI TẬP ── */
+        loading ? (
+          <div style={{
+            background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
+          }}>
+            <p className="animate-pulse">Loading approval queue...</p>
+          </div>
+        ) : requests.length === 0 ? (
+          <div style={{
+            background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
+            boxShadow: t.shadow,
+          }}>
+            <div style={{ marginBottom: 8, opacity: 0.35, fontSize: 28 }}>✅</div>
+            All caught up! No pending requests.
+          </div>
+        ) : (
+          <div style={{
+            background: t.surface,
+            border: `1px solid ${t.border}`,
+            borderRadius: 12, overflow: "hidden",
+            boxShadow: t.shadow,
+          }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+              <thead>
+                <tr style={{
+                  background: isLight ? t.tableHeadBg : t.tableHeadBg,
+                  borderBottom: `1px solid ${isLight ? t.accentDark + "55" : t.border}`,
+                }}>
+                  {["ID", "Problem Name", "Author", "Requested Date", "Actions"].map((h, i) => (
+                    <th key={i} style={{
+                      padding: "12px 20px",
+                      textAlign: i === 4 ? "center" : "left",
+                      fontSize: 10, fontWeight: 700, letterSpacing: "0.09em",
+                      textTransform: "uppercase",
+                      color: isLight ? "#fff" : t.textSecondary,
+                      fontFamily: "'DM Mono', monospace",
                     }}>
-                      #ml_{req.id}
-                    </span>
-                  </td>
-                  <td style={{ padding: "14px 20px" }}>
-                    <span style={{
-                      fontSize: 13, fontWeight: 600,
-                      color: isLight ? "#0f172a" : "#e2e8f0",
-                      display: "block", lineHeight: 1.4,
-                    }}>
-                      {req.name}
-                    </span>
-                  </td>
-                  <td style={{ padding: "14px 20px", width: 160 }}>
-                    <span style={{ fontSize: 12, color: t.textSecondary, fontWeight: 500 }}>
-                      {req.author_name}
-                    </span>
-                  </td>
-                  <td style={{ padding: "14px 20px", width: 160 }}>
-                    <span style={{ fontSize: 11, color: isLight ? "#64748b" : "#475569", fontFamily: "'DM Mono', monospace" }}>
-                      {new Date(req.created_at).toLocaleDateString("en-GB", {
-                        day: "2-digit", month: "short", year: "numeric"
-                      })}
-                    </span>
-                  </td>
-                  <td style={{ padding: "14px 20px", width: 220, textAlign: "center" }}>
-                    <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
-                      <button
-                        type="button"
-                        disabled={actionLoading === req.id}
-                        onClick={() => handleAction(req.id, "approve")}
-                        style={{
-                          background: isLight ? "#059669" : "transparent",
-                          border: isLight ? "none" : "1px solid rgba(16,185,129,0.3)",
-                          color: isLight ? "#fff" : "#34d399",
-                          padding: "5px 12px", borderRadius: 5,
-                          fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
-                          cursor: "pointer", transition: "all 0.15s",
-                          textTransform: "uppercase",
-                          opacity: actionLoading === req.id ? 0.6 : 1,
-                        }}
-                      >
-                        APPROVE
-                      </button>
-                      <button
-                        type="button"
-                        disabled={actionLoading === req.id}
-                        onClick={() => handleAction(req.id, "reject")}
-                        style={{
-                          background: isLight ? "#e11d48" : "transparent",
-                          border: isLight ? "none" : "1px solid rgba(244,63,94,0.3)",
-                          color: isLight ? "#fff" : "#fb7185",
-                          padding: "5px 12px", borderRadius: 5,
-                          fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
-                          cursor: "pointer", transition: "all 0.15s",
-                          textTransform: "uppercase",
-                          opacity: actionLoading === req.id ? 0.6 : 1,
-                        }}
-                      >
-                        REJECT
-                      </button>
-                    </div>
-                  </td>
+                      {h}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {requests.map((req, idx) => (
+                  <tr
+                    key={req.id}
+                    style={{
+                      borderBottom: `1px solid ${isLight ? "#e2e8f0" : "rgba(255,255,255,0.04)"}`,
+                      background: idx % 2 === 0
+                        ? "transparent"
+                        : (isLight ? "#f8fafc" : "rgba(255,255,255,0.01)"),
+                    }}
+                  >
+                    <td style={{ padding: "14px 20px", width: 120 }}>
+                      <span style={{
+                        fontFamily: "'DM Mono', monospace", fontSize: 11,
+                        color: isLight ? "#059669" : "#475569",
+                        letterSpacing: "0.02em", fontWeight: 600,
+                      }}>
+                        #ml_{req.id}
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 20px" }}>
+                      <span style={{
+                        fontSize: 13, fontWeight: 600,
+                        color: isLight ? "#0f172a" : "#e2e8f0",
+                        display: "block", lineHeight: 1.4,
+                      }}>
+                        {req.name}
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 20px", width: 160 }}>
+                      <span style={{ fontSize: 12, color: t.textSecondary, fontWeight: 500 }}>
+                        {req.author_name}
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 20px", width: 160 }}>
+                      <span style={{ fontSize: 11, color: isLight ? "#64748b" : "#475569", fontFamily: "'DM Mono', monospace" }}>
+                        {new Date(req.created_at).toLocaleDateString("en-GB", {
+                          day: "2-digit", month: "short", year: "numeric"
+                        })}
+                      </span>
+                    </td>
+                    <td style={{ padding: "14px 20px", width: 220, textAlign: "center" }}>
+                      <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
+                        <button
+                          type="button"
+                          disabled={actionLoading === req.id}
+                          onClick={() => handleProblemAction(req.id, "approve")}
+                          style={{
+                            background: isLight ? "#059669" : "transparent",
+                            border: isLight ? "none" : "1px solid rgba(16,185,129,0.3)",
+                            color: isLight ? "#fff" : "#34d399",
+                            padding: "5px 12px", borderRadius: 5,
+                            fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+                            cursor: "pointer", transition: "all 0.15s",
+                            textTransform: "uppercase",
+                            opacity: actionLoading === req.id ? 0.6 : 1,
+                          }}
+                        >
+                          APPROVE
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionLoading === req.id}
+                          onClick={() => handleProblemAction(req.id, "reject")}
+                          style={{
+                            background: isLight ? "#e11d48" : "transparent",
+                            border: isLight ? "none" : "1px solid rgba(244,63,94,0.3)",
+                            color: isLight ? "#fff" : "#fb7185",
+                            padding: "5px 12px", borderRadius: 5,
+                            fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+                            cursor: "pointer", transition: "all 0.15s",
+                            textTransform: "uppercase",
+                            opacity: actionLoading === req.id ? 0.6 : 1,
+                          }}
+                        >
+                          REJECT
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : (
+        /* ── HIỂN THỊ HÀNG CHỜ YÊU CẦU DUYỆT ĐỀ XUẤT LỜI GIẢI MẪU ── */
+        loading ? (
+          <div style={{
+            background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
+          }}>
+            <p className="animate-pulse">Loading solutions proposals queue...</p>
+          </div>
+        ) : solutionProposals.length === 0 ? (
+          <div style={{
+            background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: t.textSecondary, fontSize: 13,
+            boxShadow: t.shadow,
+          }}>
+            <div style={{ marginBottom: 8, opacity: 0.35, fontSize: 28 }}>✅</div>
+            All caught up! No pending solution proposals.
+          </div>
+        ) : (
+          <div style={{
+            background: t.surface,
+            border: `1px solid ${t.border}`,
+            borderRadius: 12, overflow: "hidden",
+            boxShadow: t.shadow,
+          }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+              <thead>
+                <tr style={{
+                  background: isLight ? t.tableHeadBg : t.tableHeadBg,
+                  borderBottom: `1px solid ${isLight ? t.accentDark + "55" : t.border}`,
+                }}>
+                  {["ID", "Problem Name", "Contributor", "Date Proposed", "Proposed Code", "Actions"].map((h, i) => (
+                    <th key={i} style={{
+                      padding: "12px 20px",
+                      textAlign: i === 5 ? "center" : "left",
+                      fontSize: 10, fontWeight: 700, letterSpacing: "0.09em",
+                      textTransform: "uppercase",
+                      color: isLight ? "#fff" : t.textSecondary,
+                      fontFamily: "'DM Mono', monospace",
+                    }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {solutionProposals.map((prop, idx) => {
+                  const isCodeExpanded = expandedProposalId === prop.id;
+                  return (
+                    <React.Fragment key={prop.id}>
+                      <tr
+                        style={{
+                          borderBottom: `1px solid ${isLight ? "#e2e8f0" : "rgba(255,255,255,0.04)"}`,
+                          background: idx % 2 === 0
+                            ? "transparent"
+                            : (isLight ? "#f8fafc" : "rgba(255,255,255,0.01)"),
+                        }}
+                      >
+                        <td style={{ padding: "14px 20px", width: 110 }}>
+                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: t.accent, fontWeight: 600 }}>
+                            #PROP_{prop.id}
+                          </span>
+                        </td>
+                        <td style={{ padding: "14px 20px" }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary }}>
+                            {prop.problem_name}
+                          </span>
+                        </td>
+                        <td style={{ padding: "14px 20px", width: 160 }}>
+                          <span style={{ fontSize: 12, color: t.textSecondary, fontWeight: 500 }}>
+                            {prop.contributor_name}
+                          </span>
+                        </td>
+                        <td style={{ padding: "14px 20px", width: 160 }}>
+                          <span style={{ fontSize: 11, color: isLight ? "#64748b" : "#475569", fontFamily: "'DM Mono', monospace" }}>
+                            {new Date(prop.created_at).toLocaleDateString()}
+                          </span>
+                        </td>
+                        <td style={{ padding: "14px 20px", width: 140 }}>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedProposalId(isCodeExpanded ? null : prop.id)}
+                            style={{
+                              background: "transparent", border: "none", color: t.accent,
+                              fontSize: 11, fontWeight: 600, cursor: "pointer"
+                            }}
+                          >
+                            {isCodeExpanded ? "Hide Code ▲" : "View Code ▼"}
+                          </button>
+                        </td>
+                        <td style={{ padding: "14px 20px", width: 220, textAlign: "center" }}>
+                          <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
+                            <button
+                              type="button"
+                              disabled={actionLoading === prop.id}
+                              onClick={() => handleProposalAction(prop.id, "approve")}
+                              style={{
+                                background: isLight ? "#059669" : "transparent",
+                                border: isLight ? "none" : "1px solid rgba(16,185,129,0.3)",
+                                color: isLight ? "#fff" : "#34d399",
+                                padding: "5px 12px", borderRadius: 5,
+                                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+                                cursor: "pointer", transition: "all 0.15s",
+                                textTransform: "uppercase",
+                                opacity: actionLoading === prop.id ? 0.6 : 1,
+                              }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              disabled={actionLoading === prop.id}
+                              onClick={() => handleProposalAction(prop.id, "reject")}
+                              style={{
+                                background: isLight ? "#e11d48" : "transparent",
+                                border: isLight ? "none" : "1px solid rgba(244,63,94,0.3)",
+                                color: isLight ? "#fff" : "#fb7185",
+                                padding: "5px 12px", borderRadius: 5,
+                                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+                                cursor: "pointer", transition: "all 0.15s",
+                                textTransform: "uppercase",
+                                opacity: actionLoading === prop.id ? 0.6 : 1,
+                              }}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {isCodeExpanded && (
+                        <tr>
+                          <td colSpan={6} style={{ padding: "16px 20px", background: isLight ? "#f8fafc" : "rgba(0,0,0,0.2)" }}>
+                            <pre style={{
+                              margin: 0, padding: 12, borderRadius: 6,
+                              background: isLight ? "#f1f5f9" : "#050b14",
+                              border: `1px solid ${t.border}`,
+                              fontFamily: "'Fira Code', 'DM Mono', monospace", fontSize: 12,
+                              lineHeight: 1.5, overflowX: "auto"
+                            }}>
+                              <code>{prop.proposed_code}</code>
+                            </pre>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
       )}
     </div>
   );

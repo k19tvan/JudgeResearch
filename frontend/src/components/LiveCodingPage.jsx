@@ -13,6 +13,7 @@ const CONTENT_TABS = [
   { key: "statement", label: "Description" },
   { key: "theory", label: "Theory" },
   { key: "tutorial", label: "Editorial" },
+  { key: "solution", label: "Solution" }, // Integrated new Solution Tab
   { key: "submissions", label: "Submissions" },
   { key: "discussion", label: "Discussion" },
 ];
@@ -33,11 +34,11 @@ export default function LiveCodingPage() {
   const { problemId } = useParams();
   const baseProblem = location.state?.problem;
 
-  // Đọc chế độ theme (sáng/tối) đồng bộ trực tiếp từ trang chủ
+  // Sync theme mode (light/dark) directly from home page
   const [theme] = useState(() => localStorage.getItem("home_theme") || "dark");
   const isLight = theme === "light";
 
-  // Đồng bộ cấu trúc bảng màu của trang Home
+  // Sync color scheme structure of Home page
   const t = {
     pageBg: isLight ? "#eaf2f0" : "#080C14",
     surface: isLight ? "#ffffff" : "#0D1117",
@@ -71,6 +72,10 @@ export default function LiveCodingPage() {
   const [submissions, setSubmissions] = useState([]);
   const [isSubmissionsLoading, setIsSubmissionsLoading] = useState(false);
   const [expandedSubId, setExpandedSubId] = useState(null);
+
+  // States managing raw/draft editing of the sample solution (Solution Tab)
+  const [isEditingSolution, setIsEditingSolution] = useState(false);
+  const [solutionDraft, setSolutionDraft] = useState("");
 
   const currentUserId = Number(localStorage.getItem("user_id") || "1");
   const role = localStorage.getItem("user_role") || "user";
@@ -203,9 +208,8 @@ export default function LiveCodingPage() {
         formPayload.append("output_zip", outputZipFile);
       }
 
-      // Only validate and append testcases if no zip file is uploaded
+      // Attach test cases when zip files are not uploaded
       if (!inputZipFile && !outputZipFile) {
-        // Validate testcases JSON
         for (let i = 0; i < testcases.length; i++) {
           const tc = testcases[i];
           try {
@@ -329,41 +333,41 @@ export default function LiveCodingPage() {
   };
 
   const handleSubmitCode = () => {
-      // Tiền điều kiện: Kiểm tra tính hợp lệ của bài nộp (mã nguồn không rỗng)
-      if (!code || !code.trim()) {
-        alert("Nộp bài thất bại: Mã nguồn không được phép bỏ trống.");
-        return;
-      }
+    // 3.1. Verify submission validity (source code cannot be empty)
+    if (!code || !code.trim()) {
+      alert("Submission failed: Compiled source code cannot be empty.");
+      return;
+    }
 
-      (async () => {
-        setIsConsoleRunning(true);
-        setConsoleOutput("Submitting... Evaluating on hidden dataset...\n");
-        try {
-          const resp = await submitProblem(problemId, currentUserId, code);
-          const parts = [];
-          parts.push(`Final status: ${resp.status}`);
-          parts.push(`Score: ${resp.score}`);
-          parts.push(`Submission ID: ${resp.submission_id}`);
-          parts.push('Test results:');
-          resp.results.forEach((r) => {
-            parts.push(`  TC ${r.testcase}: ${r.status} (${JSON.stringify(r.user_output)})`);
-          });
-          setConsoleOutput(parts.join('\n'));
+    (async () => {
+      setIsConsoleRunning(true);
+      setConsoleOutput("Submitting... Evaluating on hidden dataset...\n");
+      try {
+        const resp = await submitProblem(problemId, currentUserId, code);
+        const parts = [];
+        parts.push(`Final status: ${resp.status}`);
+        parts.push(`Score: ${resp.score}`);
+        parts.push(`Submission ID: ${resp.submission_id}`);
+        parts.push('Test results:');
+        resp.results.forEach((r) => {
+          parts.push(`  TC ${r.testcase}: ${r.status} (${JSON.stringify(r.user_output)})`);
+        });
+        setConsoleOutput(parts.join('\n'));
 
-          // Hiển thị thông báo nộp bài thành công kèm điểm số đạt được trên giao diện
-          alert(`Nộp bài thành công!\nĐiểm số đạt được: ${resp.score}/100\nTrạng thái chung: ${resp.status.toUpperCase()}`);
+        // 3.1. Show success alert with score on UI
+        alert(`Submission successful!\nScore obtained: ${resp.score}/100\nEvaluation result: ${resp.status.toUpperCase()}`);
 
-          if (activeContentTab === "submissions") {
-            loadSubmissionsList();
-          }
-        } catch (err) {
-          setConsoleOutput(`Error: ${err.message}`);
-          // Quá trình nộp bài thất bại do sự cố máy chủ hoặc lỗi không xác định
-          alert(`Nộp bài thất bại. Vui lòng thử lại sau.\nChi tiết: ${err.message}`);
-        } finally {
-          setIsConsoleRunning(false);
+        if (activeContentTab === "submissions") {
+          loadSubmissionsList();
         }
-      })();
+      } catch (err) {
+        setConsoleOutput(`Error: ${err.message}`);
+        // 3.1. Submission failed due to server communication error
+        alert(`Submission failed. Please try again later.\nDetails: ${err.message}`);
+      } finally {
+        setIsConsoleRunning(false);
+      }
+    })();
   };
 
   const handleLoadSubmittedCode = (submittedCode) => {
@@ -398,6 +402,61 @@ export default function LiveCodingPage() {
     return isLight
       ? "bg-cyan-50 text-cyan-600 border border-cyan-200"
       : "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20";
+  };
+
+  // Modern console decorator helper for lively UI
+  const formatConsoleOutput = (outputStr) => {
+    if (!outputStr) return null;
+    return outputStr.split("\n").map((line, idx) => {
+      if (!line.trim()) return null;
+
+      let style = { color: t.textPrimary };
+      let icon = "⚡";
+      const lower = line.toLowerCase();
+
+      if (lower.startsWith("status:") || lower.startsWith("final status:")) {
+        if (lower.includes("accepted")) {
+          style = { color: "#10B981", fontWeight: "700" };
+          icon = "✅";
+        } else if (lower.includes("wrong_answer") || lower.includes("wrong") || lower.includes("error")) {
+          style = { color: "#F43F5E", fontWeight: "700" };
+          icon = "❌";
+        } else {
+          style = { color: "#F59E0B", fontWeight: "700" };
+          icon = "⚠️";
+        }
+      } else if (lower.includes("score:")) {
+        style = { color: "#EAB308", fontWeight: "800", textShadow: isLight ? "none" : "0 0 8px rgba(234,179,8,0.2)" };
+        icon = "⭐";
+      } else if (lower.includes("running") || lower.includes("submitting") || lower.includes("evaluating")) {
+        style = { color: t.accent, fontStyle: "italic" };
+        icon = "⏳";
+      } else if (lower.includes("error:") || lower.startsWith("error") || lower.includes("failed")) {
+        style = { color: "#EF4444", fontWeight: "600" };
+        icon = "🚨";
+      } else if (line.trim().startsWith("TC") || line.trim().startsWith("  TC")) {
+        if (lower.includes("accepted")) {
+          style = { color: "#34D399" };
+          icon = "✓";
+        } else {
+          style = { color: "#F87171" };
+          icon = "✗";
+        }
+      } else if (lower.startsWith("test results:") || lower.startsWith("output:") || lower.startsWith("expected:")) {
+        style = { color: t.textSecondary, fontWeight: "500" };
+        icon = "📊";
+      } else {
+        style = { color: isLight ? "#475569" : "#94A3B8" };
+        icon = "›";
+      }
+
+      return (
+        <div key={idx} className="flex items-start gap-2 py-0.5 font-mono text-[11px] leading-relaxed select-text">
+          <span style={{ color: style.color }} className="opacity-80 select-none">{icon}</span>
+          <span style={style}>{line}</span>
+        </div>
+      );
+    });
   };
 
   const contentMap = {
@@ -481,7 +540,7 @@ export default function LiveCodingPage() {
           border: none;
           padding: 0;
           background: transparent;
-          color: ${isLight ? "#0f172a" : "#e2e8f0"};
+          color: ${isLight ? "#e2e8f0" : "#e2e8f0"};
           font-size: 0.9em;
         }
         .markdown-preview blockquote {
@@ -585,7 +644,7 @@ export default function LiveCodingPage() {
       {/* WORKSPACE AREA */}
       <main className="flex flex-1 w-full overflow-hidden p-2 gap-2" style={{ background: isLight ? "#f1f5f9" : "#080711" }}>
 
-        {/* LEFT COLUMN: Problem Info Panel, Submissions & Discussions */}
+        {/* LEFT COLUMN: Problem Info Panel, Submissions, Discussions & Solution Tab */}
         <section
           className="flex w-1/2 flex-col h-full rounded-xl transition-colors duration-150"
           style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: t.shadow, overflow: "hidden" }}
@@ -598,7 +657,10 @@ export default function LiveCodingPage() {
               <button
                 key={tab.key}
                 type="button"
-                onClick={() => setActiveContentTab(tab.key)}
+                onClick={() => {
+                  setActiveContentTab(tab.key);
+                  setIsEditingSolution(false); // Reset solution raw editor state on tab change
+                }}
                 style={{
                   padding: "12px 16px",
                   fontSize: 12,
@@ -619,10 +681,10 @@ export default function LiveCodingPage() {
           {/* Internal Scrollable Content Box */}
           <div className="flex-1 overflow-y-auto p-5" style={{ background: isLight ? "#ffffff" : "rgba(0,0,0,0.08)" }}>
             {activeContentTab === "discussion" ? (
-              /* PANEL HIỂN THỊ THẢO LUẬN BÀI TẬP (DISCUSSION) */
+              /* DISCUSSION TAB PANEL */
               <DiscussionTab problemId={problemId} isLight={isLight} />
             ) : activeContentTab === "submissions" ? (
-              /* PANEL HIỂN THỊ DANH SÁCH SUBMISSIONS */
+              /* SUBMISSIONS LIST PANEL */
               <div className="space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: t.textPrimary, fontFamily: "'JetBrains Mono', monospace" }}>Submission History</h3>
 
@@ -711,8 +773,265 @@ export default function LiveCodingPage() {
                   ))
                 )}
               </div>
+            ) : activeContentTab === "solution" ? (
+              /* SOLUTION SPACE PANEL */
+              <div className="space-y-4">
+                {problem?.solution_markdown?.includes("Restricted Access") ? (
+                  /* 4.2.1. Sample solution is locked if the User has not solved the problem successfully */
+                  <div className="text-center py-12">
+                    <span style={{ fontSize: 44 }} className="block mb-4">🔒</span>
+                    <h3 className="text-sm font-bold uppercase tracking-wider mb-2" style={{ color: t.textPrimary }}>
+                      Sample Solution Locked
+                    </h3>
+                    <p className="text-xs" style={{ color: t.textSecondary, maxWidth: 360, margin: "0 auto", lineHeight: 1.65 }}>
+                      You need to submit a correct implementation (scoring a perfect 100 points or achieving an "Accepted" status) to unlock this sample solution.
+                    </p>
+                  </div>
+                ) : (
+                  /* 4.2.2. Display sample solution content (For Admin/Contributor or users who solved it correctly) */
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.textPrimary, fontFamily: "'JetBrains Mono', monospace" }}>
+                        Sample Solution Code (solution.py)
+                      </h3>
+
+                      {/* Allow Admin to edit or Contributor to request update */}
+                      {(role === "admin" || role === "contributor") && !isEditingSolution && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSolutionDraft(problem?.solution_markdown || "");
+                            setIsEditingSolution(true);
+                          }}
+                          style={{
+                            background: t.accentDim,
+                            border: `1px solid ${t.accentBorder}`,
+                            color: t.accent,
+                            borderRadius: 6,
+                            padding: "4px 12px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Edit Solution
+                        </button>
+                      )}
+                    </div>
+
+                    {isEditingSolution ? (
+                      <div className="space-y-3">
+                        <textarea
+                          value={solutionDraft}
+                          onChange={(e) => setSolutionDraft(e.target.value)}
+                          rows={12}
+                          className="tk-input"
+                          style={{
+                            ...inputStyle,
+                            fontFamily: "'Fira Code', 'JetBrains Mono', monospace",
+                            fontSize: 12,
+                            resize: "vertical",
+                            lineHeight: 1.6,
+                          }}
+                          placeholder="Write Python solution code here..."
+                        />
+
+                        <div className="flex gap-2">
+                          {role === "admin" ? (
+                            <>
+                              {/* 4.1.1. Admin saves the solution directly to static file */}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    const res = await fetch(`http://localhost:21081/api/problems/${problemId}/solution`, {
+                                      method: "PUT",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ solution_code: solutionDraft })
+                                    });
+                                    const data = await res.json();
+                                    if (res.ok) {
+                                      alert(data.message);
+                                      setIsEditingSolution(false);
+                                      await loadProblemContent();
+                                    } else {
+                                      alert(data.detail);
+                                    }
+                                  } catch (err) {
+                                    alert("Saving sample solution failed: " + err.message);
+                                  }
+                                }}
+                                style={{
+                                  background: t.accent,
+                                  color: "#fff",
+                                  border: "none",
+                                  borderRadius: 6,
+                                  padding: "6px 14px",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Save Solution
+                              </button>
+
+                              {/* 4.1.1. Admin deletes the sample solution file */}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!window.confirm("Are you sure you want to remove this sample solution file?")) return;
+                                  try {
+                                    const res = await fetch(`http://localhost:21081/api/problems/${problemId}/solution`, {
+                                      method: "DELETE"
+                                    });
+                                    const data = await res.json();
+                                    if (res.ok) {
+                                      alert(data.message);
+                                      setIsEditingSolution(false);
+                                      await loadProblemContent();
+                                    } else {
+                                      alert(data.detail);
+                                    }
+                                  } catch (err) {
+                                    alert("Deleting sample solution failed: " + err.message);
+                                  }
+                                }}
+                                style={{
+                                  background: "#ef4444",
+                                  color: "#fff",
+                                  border: "none",
+                                  borderRadius: 6,
+                                  padding: "6px 14px",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Delete Solution
+                              </button>
+                            </>
+                          ) : (
+                            /* 4.1.2. Contributor creates a proposed solution in approval queue */
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch(`http://localhost:21081/api/problems/${problemId}/solution-proposal`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ proposed_code: solutionDraft, contributor_id: currentUserId })
+                                  });
+                                  const data = await res.json();
+                                  if (res.ok) {
+                                    alert(data.message);
+                                    setIsEditingSolution(false);
+                                  } else {
+                                    alert(data.detail);
+                                  }
+                                } catch (err) {
+                                  alert("Sending proposal to update sample solution failed: " + err.message);
+                                }
+                              }}
+                              style={{
+                                background: t.accent,
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: 6,
+                                padding: "6px 14px",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Request Solution Update
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsEditingSolution(false);
+                              setSolutionDraft("");
+                            }}
+                            style={{
+                              background: "transparent",
+                              border: `1px solid ${t.border}`,
+                              color: t.textSecondary,
+                              borderRadius: 6,
+                              padding: "6px 14px",
+                              fontSize: 11,
+                              fontWeight: 600,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Cancel Changes
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* VS Code-style Solution Codespace Editor (Static read-only view) */
+                      <div 
+                        style={{ 
+                          borderRadius: 10, 
+                          overflow: "hidden", 
+                          border: `1px solid ${t.border}`,
+                          boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+                          background: isLight ? "#ffffff" : "#1e1e1e"
+                        }}
+                      >
+                        {/* Mock VS Code Header Control Bar */}
+                        <div 
+                          style={{ 
+                            display: "flex", 
+                            alignItems: "center", 
+                            justifyContent: "space-between", 
+                            padding: "8px 16px", 
+                            background: isLight ? "#f1f5f9" : "#181818", 
+                            borderBottom: `1px solid ${t.border}` 
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#ff5f56" }} />
+                            <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#ffbd2e" }} />
+                            <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#27c93f" }} />
+                          </div>
+                          <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: t.textSecondary, fontWeight: 500 }}>
+                            solution.py — Read-only Reference
+                          </span>
+                          <span style={{ fontSize: 10, fontFamily: "sans-serif", color: t.accent, fontWeight: 700, background: t.accentDim, padding: "2px 8px", borderRadius: 4 }}>
+                            PYTHON
+                          </span>
+                        </div>
+                        <Editor
+                          height="350px"
+                          defaultLanguage="python"
+                          language="python"
+                          value={problem?.solution_markdown || "No sample solution has been initialized for this problem."}
+                          theme={isLight ? "light" : "vs-dark"}
+                          options={{
+                            readOnly: true,
+                            domReadOnly: true,
+                            minimap: { enabled: false },
+                            fontSize: 12.5,
+                            fontFamily: "'Fira Code', 'JetBrains Mono', 'DM Mono', Menlo, Monaco, Consolas, monospace",
+                            scrollBeyondLastLine: false,
+                            lineNumbers: "on",
+                            wordWrap: "on",
+                            contextmenu: false,
+                            folding: true,
+                            scrollbar: {
+                              vertical: 'visible',
+                              horizontal: 'visible'
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
-              /* PANEL HIỂN THỊ CÁC TAB KHÁC */
+              /* OTHER TABS PANEL */
               <div className="markdown-preview text-sm">
                 <ReactMarkdown
                   remarkPlugins={[remarkMath]}
@@ -809,8 +1128,8 @@ export default function LiveCodingPage() {
               </div>
             </div>
 
-            {/* Monaco Editor Frame */}
-            <div className="flex-1 h-full w-full">
+            {/* Monaco Editor Frame (Configured with extra top/bottom padding) */}
+            <div className="flex-1 h-full w-full py-4">
               <Editor
                 height="100%"
                 defaultLanguage="python"
@@ -835,7 +1154,7 @@ export default function LiveCodingPage() {
 
           {/* CONSOLE / TEST RESULTS PANEL */}
           <div
-            className="h-48 flex flex-col rounded-xl overflow-hidden"
+            className="h-56 flex flex-col rounded-xl overflow-hidden"
             style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: t.shadow }}
           >
             <div
@@ -849,12 +1168,12 @@ export default function LiveCodingPage() {
             </div>
 
             <div
-              className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-relaxed"
+              className="flex-1 overflow-y-auto p-4"
               style={{ background: isLight ? "#f8fafc" : "#0c1524" }}
             >
-              <pre className="whitespace-pre-wrap font-sans" style={{ color: t.textPrimary }}>
-                {consoleOutput}
-              </pre>
+              <div className="space-y-1">
+                {formatConsoleOutput(consoleOutput)}
+              </div>
             </div>
           </div>
 
@@ -867,6 +1186,7 @@ export default function LiveCodingPage() {
           ⚠️ System error: {error}
         </footer>
       )}
+
       {/* DIALOG PORTAL */}
       {isEditModalOpen && createPortal(
         <div style={{
@@ -1185,7 +1505,7 @@ export default function LiveCodingPage() {
             fontFamily: "'Sora', sans-serif", color: t.textPrimary,
             position: "relative"
           }}>
-            {/* red top stripe */}
+            {/* Red top stripe */}
             <div style={{
               position: "absolute", top: 0, left: 0, right: 0, height: 3,
               background: "#ef4444"
