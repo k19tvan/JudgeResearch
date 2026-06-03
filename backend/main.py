@@ -811,7 +811,7 @@ async def run_problem_code(
             [sys.executable, temp_file_path],
             capture_output=True,
             text=True,
-            timeout=5.0
+            timeout=30.0
         )
         elapsed_ms = int((time.perf_counter() - start_time) * 1000)
     except subprocess.TimeoutExpired:
