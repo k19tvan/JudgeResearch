@@ -1,11 +1,14 @@
+// src/api.js
 import axios from "axios";
 axios.defaults.withCredentials = true;
 
 const AUTH_API_URL = "http://localhost:21081/api/auth";
 const PROBLEM_API_URL = "http://localhost:21081/api/problems";
 const ROADMAP_API_URL = "http://localhost:21081/api/roadmaps";
-const ROADMAP_STEP_API_URL = "http://localhost:21081/api/roadmap-steps"; // Thêm base URL cho roadmap-steps
+const ROADMAP_STEP_API_URL = "http://localhost:21081/api/roadmap-steps"; 
 const USER_API_URL = "http://localhost:21081/api/users";
+
+// ================ CORE SECURE FETCH FUNCTION (WITH SILENT REFRESH) ================
 
 async function customFetch(url, options = {}) {
   let accessToken = localStorage.getItem("access_token");
@@ -14,8 +17,8 @@ async function customFetch(url, options = {}) {
   options.credentials = "include"; 
 
   options.headers = {
-    ...options.headers,
     ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {}),
+    ...options.headers,
   };
 
   let response = await fetch(url, options);
@@ -23,7 +26,7 @@ async function customFetch(url, options = {}) {
   // Tự động xử lý âm thầm khi Access Token hết hạn (401)
   if (response.status === 401) {
     try {
-      // Gọi API refresh (Không cần truyền body vì cookie tự động được đính kèm)
+      // Gọi API refresh (Không cần truyền body vì cookie tự động được đính kèm chéo cổng)
       const refreshResponse = await fetch("http://localhost:21081/api/auth/refresh", {
         method: "POST",
         credentials: "include",
@@ -55,59 +58,7 @@ function handleSessionExpired() {
   window.location.href = "/login";
 }
 
-const getAuthHeaders = () => {
-  const token = localStorage.getItem("access_token");
-  return {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-};
-
-const refreshAccessToken = async () => {
-  const refreshToken = localStorage.getItem("refresh_token");
-  if (!refreshToken) return null;
-
-  const response = await fetch(`${AUTH_API_URL}/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refreshToken }),
-  });
-
-  if (!response.ok) return null;
-
-  const data = await response.json();
-  if (data.access_token) {
-    localStorage.setItem("access_token", data.access_token);
-  }
-  return data.access_token || null;
-};
-
-const readResponseDetail = async (response) => {
-  try {
-    const data = await response.clone().json();
-    return data.detail || "";
-  } catch {
-    return "";
-  }
-};
-
-const shouldRefreshAndRetry = (response, detail) =>
-  response.status === 401 ||
-  (response.status === 403 && detail === "Cannot update another user's account");
-
-const sendWithAuthRetry = async (sendRequest) => {
-  let response = await sendRequest();
-  const detail = await readResponseDetail(response);
-
-  if (shouldRefreshAndRetry(response, detail)) {
-    const refreshedToken = await refreshAccessToken();
-    if (refreshedToken) {
-      response = await sendRequest();
-    }
-  }
-
-  return response;
-};
+// ================ AUTHENTICATION ENDPOINTS ================
 
 export const registerUser = async (userData) => {
   const response = await fetch(`${AUTH_API_URL}/register`, {
@@ -128,6 +79,7 @@ export const loginUser = async (credentials) => {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(credentials),
+    credentials: "include", // Đảm bảo nhận HttpOnly Cookie refresh_token từ máy chủ
   });
 
   if (!response.ok) {
@@ -137,9 +89,11 @@ export const loginUser = async (credentials) => {
   return response.json(); 
 };
 
+// ================ PROBLEMS ENDPOINTS ================
+
 export const createManualProblem = async (formData) => {
-  // Không đặt Header 'Content-Type' vì trình duyệt sẽ tự động thiết lập ranh giới (boundary) cho FormData
-  const response = await fetch(`${PROBLEM_API_URL}/create/manual`, {
+  // customFetch tự động thêm credentials: "include" và Authorization header
+  const response = await customFetch(`${PROBLEM_API_URL}/create/manual`, {
     method: "POST",
     body: formData, 
   });
@@ -163,12 +117,12 @@ export const fetchProblemContent = async (problemId, userId) => {
   const url = userId 
     ? `http://localhost:21081/api/problems/${problemId}/content?user_id=${userId}`
     : `http://localhost:21081/api/problems/${problemId}/content`;
-  const response = await fetch(url);
+  const response = await customFetch(url);
   return response.json();
 };
 
 export const createProblemsFromRepo = async (payload) => {
-  const response = await fetch(`${PROBLEM_API_URL}/problems_from_repo`, {
+  const response = await customFetch(`${PROBLEM_API_URL}/problems_from_repo`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -183,7 +137,7 @@ export const createProblemsFromRepo = async (payload) => {
 };
 
 export const fetchDraftSessions = async (userId) => {
-  const response = await fetch(`${PROBLEM_API_URL}/draft_sessions?user_id=${userId}`);
+  const response = await customFetch(`${PROBLEM_API_URL}/draft_sessions?user_id=${userId}`);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -194,7 +148,7 @@ export const fetchDraftSessions = async (userId) => {
 };
 
 export const fetchDraftSessionDetail = async (sessionId) => {
-  const response = await fetch(`${PROBLEM_API_URL}/draft_sessions/${sessionId}`);
+  const response = await customFetch(`${PROBLEM_API_URL}/draft_sessions/${sessionId}`);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -205,7 +159,7 @@ export const fetchDraftSessionDetail = async (sessionId) => {
 };
 
 export const updateDraftSessionFeedback = async (payload) => {
-  const response = await fetch(`${PROBLEM_API_URL}/draft_sessions/feedback`, {
+  const response = await customFetch(`${PROBLEM_API_URL}/draft_sessions/feedback`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -220,7 +174,7 @@ export const updateDraftSessionFeedback = async (payload) => {
 };
 
 export const finalizeDraftSession = async (payload) => {
-  const response = await fetch(`${PROBLEM_API_URL}/draft_sessions/finalize`, {
+  const response = await customFetch(`${PROBLEM_API_URL}/draft_sessions/finalize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -234,8 +188,10 @@ export const finalizeDraftSession = async (payload) => {
   return response.json();
 };
 
+// ================ ROADMAPS ENDPOINTS ================
+
 export const fetchRoadmap = async (roadmapId) => {
-  const response = await fetch(`${ROADMAP_API_URL}/${roadmapId}`);
+  const response = await customFetch(`${ROADMAP_API_URL}/${roadmapId}`);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -246,7 +202,7 @@ export const fetchRoadmap = async (roadmapId) => {
 };
 
 export const fetchRoadmaps = async (userId) => {
-  const response = await fetch(`${ROADMAP_API_URL}?user_id=${userId}`);
+  const response = await customFetch(`${ROADMAP_API_URL}?user_id=${userId}`);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -256,9 +212,8 @@ export const fetchRoadmaps = async (userId) => {
   return response.json();
 };
 
-// Đã cập nhật khớp hoàn toàn với endpoint roadmap-step mới của backend
 export const createProblemDetailedly = async (stepId) => {
-  const response = await fetch(`${ROADMAP_STEP_API_URL}/${stepId}/create_detailedly`, {
+  const response = await customFetch(`${ROADMAP_STEP_API_URL}/${stepId}/create_detailedly`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
@@ -271,9 +226,8 @@ export const createProblemDetailedly = async (stepId) => {
   return response.json();
 };
 
-// Đã cập nhật khớp hoàn toàn với endpoint lưu chính thức mới của backend
 export const saveStepToProblem = async (stepId) => {
-  const response = await fetch(`${ROADMAP_STEP_API_URL}/${stepId}/save_to_problem`, {
+  const response = await customFetch(`${ROADMAP_STEP_API_URL}/${stepId}/save_to_problem`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
@@ -286,8 +240,10 @@ export const saveStepToProblem = async (stepId) => {
   return response.json();
 };
 
+// ================ CODE RUN / SUBMISSION ENDPOINTS ================
+
 export const runProblem = async (problemId, submitted_code) => {
-  const response = await fetch(`${PROBLEM_API_URL}/${problemId}/run`, {
+  const response = await customFetch(`${PROBLEM_API_URL}/${problemId}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ submitted_code }),
@@ -302,7 +258,7 @@ export const runProblem = async (problemId, submitted_code) => {
 };
 
 export const submitProblem = async (problemId, user_id, submitted_code) => {
-  const response = await fetch(`${PROBLEM_API_URL}/${problemId}/submit`, {
+  const response = await customFetch(`${PROBLEM_API_URL}/${problemId}/submit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ user_id, submitted_code }),
@@ -317,7 +273,7 @@ export const submitProblem = async (problemId, user_id, submitted_code) => {
 };
 
 export const fetchProblemSubmissions = async (problemId, userId) => {
-  const response = await fetch(`${PROBLEM_API_URL}/${problemId}/submissions?user_id=${userId}`);
+  const response = await customFetch(`${PROBLEM_API_URL}/${problemId}/submissions?user_id=${userId}`);
   if (!response.ok) {
     const errorData = await response.json();
     throw new Error(errorData.detail || "Failed to fetch submissions");
@@ -328,11 +284,7 @@ export const fetchProblemSubmissions = async (problemId, userId) => {
 // ================ USER PROFILE ENDPOINTS ================
 
 export const fetchUserProfile = async (userId) => {
-  const sendProfileRequest = () => fetch(`${USER_API_URL}/${userId}`, {
-    headers: getAuthHeaders(),
-  });
-
-  const response = await sendWithAuthRetry(sendProfileRequest);
+  const response = await customFetch(`${USER_API_URL}/${userId}`);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -343,19 +295,16 @@ export const fetchUserProfile = async (userId) => {
 };
 
 export const updateUserProfile = async (userId, profileData) => {
-  const sendUpdateRequest = () => {
-    const headers = getAuthHeaders();
-    if (profileData instanceof FormData) {
-      delete headers["Content-Type"];
-    }
-    return fetch(`${USER_API_URL}/${userId}`, {
-      method: "PUT",
-      headers,
-      body: profileData instanceof FormData ? profileData : JSON.stringify(profileData),
-    });
-  };
+  const headers = {};
+  if (!(profileData instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
 
-  const response = await sendWithAuthRetry(sendUpdateRequest);
+  const response = await customFetch(`${USER_API_URL}/${userId}`, {
+    method: "PUT",
+    headers,
+    body: profileData instanceof FormData ? profileData : JSON.stringify(profileData),
+  });
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -370,13 +319,11 @@ export const updateUserProfile = async (userId, profileData) => {
 };
 
 export const deactivateUserAccount = async (userId) => {
-  const sendDeactivationRequest = () => fetch(`${USER_API_URL}/${userId}/deactivate`, {
+  const response = await customFetch(`${USER_API_URL}/${userId}/deactivate`, {
     method: "POST",
-    headers: getAuthHeaders(),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ confirm: true }),
   });
-
-  const response = await sendWithAuthRetry(sendDeactivationRequest);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -390,11 +337,7 @@ export const deactivateUserAccount = async (userId) => {
 
 export const fetchManagedUsers = async (search = "") => {
   const query = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
-  const sendRequest = () => fetch(`${USER_API_URL.replace("/users", "/admin/users")}${query}`, {
-    headers: getAuthHeaders(),
-  });
-
-  const response = await sendWithAuthRetry(sendRequest);
+  const response = await customFetch(`${USER_API_URL.replace("/users", "/admin/users")}${query}`);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -405,11 +348,7 @@ export const fetchManagedUsers = async (search = "") => {
 };
 
 export const fetchManagedUserDetails = async (userId) => {
-  const sendRequest = () => fetch(`${USER_API_URL.replace("/users", "/admin/users")}/${userId}`, {
-    headers: getAuthHeaders(),
-  });
-
-  const response = await sendWithAuthRetry(sendRequest);
+  const response = await customFetch(`${USER_API_URL.replace("/users", "/admin/users")}/${userId}`);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -420,13 +359,11 @@ export const fetchManagedUserDetails = async (userId) => {
 };
 
 export const updateManagedUser = async (userId, accountData) => {
-  const sendRequest = () => fetch(`${USER_API_URL.replace("/users", "/admin/users")}/${userId}`, {
+  const response = await customFetch(`${USER_API_URL.replace("/users", "/admin/users")}/${userId}`, {
     method: "PUT",
-    headers: getAuthHeaders(),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(accountData),
   });
-
-  const response = await sendWithAuthRetry(sendRequest);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -436,14 +373,12 @@ export const updateManagedUser = async (userId, accountData) => {
   return response.json();
 };
 
-// ================ SUBMISSIONS / LIVE CODING ENDPOINTS ================
+// ================ GENERAL SUBMISSIONS ENDPOINTS ================
 
 export const createSubmission = async (submissionData) => {
-  const response = await fetch(`http://localhost:21081/api/submissions`, {
+  const response = await customFetch(`http://localhost:21081/api/submissions`, {
     method: "POST",
-    headers: { 
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(submissionData),
   });
 
@@ -456,7 +391,7 @@ export const createSubmission = async (submissionData) => {
 };
 
 export const fetchSubmission = async (submissionId) => {
-  const response = await fetch(`http://localhost:21081/api/submissions/${submissionId}`);
+  const response = await customFetch(`http://localhost:21081/api/submissions/${submissionId}`);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -471,7 +406,7 @@ export const fetchUserSubmissions = async (userId, problemId = null) => {
     ? `${USER_API_URL}/${userId}/submissions?problem_id=${problemId}`
     : `${USER_API_URL}/${userId}/submissions`;
   
-  const response = await fetch(url);
+  const response = await customFetch(url);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -489,7 +424,7 @@ export const filterProblems = async (filterMode = "public", userId = null) => {
     url += `&user_id=${userId}`;
   }
 
-  const response = await fetch(url);
+  const response = await customFetch(url);
 
   if (!response.ok) {
     const errorData = await response.json();
@@ -502,7 +437,7 @@ export const filterProblems = async (filterMode = "public", userId = null) => {
 // ================ APPROVAL WORKFLOW ENDPOINTS ================
 
 export const requestProblemApproval = async (problemId) => {
-  const response = await fetch(`${PROBLEM_API_URL}/${problemId}/request-approval`, {
+  const response = await customFetch(`${PROBLEM_API_URL}/${problemId}/request-approval`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
@@ -516,7 +451,7 @@ export const requestProblemApproval = async (problemId) => {
 };
 
 export const approveProblem = async (problemId) => {
-  const response = await fetch(`${PROBLEM_API_URL}/${problemId}/approve`, {
+  const response = await customFetch(`${PROBLEM_API_URL}/${problemId}/approve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
@@ -530,7 +465,7 @@ export const approveProblem = async (problemId) => {
 };
 
 export const rejectProblem = async (problemId) => {
-  const response = await fetch(`${PROBLEM_API_URL}/${problemId}/reject`, {
+  const response = await customFetch(`${PROBLEM_API_URL}/${problemId}/reject`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
