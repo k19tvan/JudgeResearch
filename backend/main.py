@@ -245,7 +245,16 @@ class AdminUserUpdatePayload(BaseModel):
     status: Optional[str] = None
 
 
+class SolutionSavePayload(BaseModel):
+    solution_code: str
 
+class ProposalCreatePayload(BaseModel):
+    proposed_code: str
+    contributor_id: int
+
+class ProposalActionPayload(BaseModel):
+    admin_id: int
+    action: str  # "approve" hoặc "reject"
 
 
 
@@ -2802,3 +2811,285 @@ def admin_update_user(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
     return {"status": "success", "message": "User updated successfully by admin"}
+
+
+
+# Usecase : Fetch all submission history (Unified endpoint for Admin and Users)
+@app.get("/api/submissions")
+def get_all_submissions(
+    user_id: Optional[int] = None,
+    problem_id: Optional[int] = None,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    current_user_id = None
+    role = "user"
+    
+    # Xác định danh tính qua token authorization nếu có
+    if authorization:
+        try:
+            identity = get_authenticated_identity(authorization)
+            current_user_id = identity.get("user_id")
+            if current_user_id:
+                cursor.execute("SELECT role FROM users WHERE id = ?", (current_user_id,))
+                user_row = cursor.fetchone()
+                if user_row:
+                    role = user_row["role"]
+        except Exception:
+            pass
+
+    # Nếu không có token nhưng có tham số user_id từ query (hỗ trợ môi trường test/local)
+    if not current_user_id and user_id:
+        current_user_id = user_id
+        cursor.execute("SELECT role FROM users WHERE id = ?", (current_user_id,))
+        user_row = cursor.fetchone()
+        if user_row:
+            role = user_row["role"]
+
+    query = """
+        SELECT s.id, s.user_id, s.problem_id, s.submitted_code, s.status, s.score, s.test_results, s.created_at,
+               u.username, u.display_name, u.avatar_url,
+               p.name AS problem_name
+        FROM submissions s
+        JOIN users u ON s.user_id = u.id
+        JOIN problems p ON s.problem_id = p.id
+    """
+    params = []
+    where_clauses = []
+
+    # Phân quyền: Chỉ có Admin mới được xem toàn bộ hệ thống
+    if role != "admin":
+        if current_user_id:
+            where_clauses.append("s.user_id = ?")
+            params.append(current_user_id)
+        else:
+            return {"status": "success", "data": []}
+    else:
+        # SỬA: Nếu là Admin, chỉ lọc theo user_id khi tham số truyền lên thực sự khác với ID của Admin (để tránh nhận nhầm ID của Admin làm bộ lọc mặc định)
+        if user_id and user_id != current_user_id:
+            where_clauses.append("s.user_id = ?")
+            params.append(user_id)
+
+    if problem_id:
+        where_clauses.append("s.problem_id = ?")
+        params.append(problem_id)
+
+    if where_clauses:
+        query += " WHERE " + " AND ".join(where_clauses)
+
+    query += " ORDER BY s.created_at DESC"
+
+    try:
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        submissions_list = []
+        for row in rows:
+            sub_dict = dict(row)
+            if sub_dict.get("test_results"):
+                try:
+                    sub_dict["test_results"] = json.loads(sub_dict["test_results"])
+                except Exception:
+                    sub_dict["test_results"] = []
+            submissions_list.append(sub_dict)
+        return {"status": "success", "data": submissions_list}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
+
+
+# Usecase : Fetch submission history for a specific user id
+@app.get("/api/users/{user_id}/submissions")
+def get_user_submissions_by_user_id(
+    user_id: int,
+    problem_id: Optional[int] = None,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    query = """
+        SELECT s.id, s.user_id, s.problem_id, s.submitted_code, s.status, s.score, s.test_results, s.created_at,
+               u.username, u.display_name, u.avatar_url,
+               p.name AS problem_name
+        FROM submissions s
+        JOIN users u ON s.user_id = u.id
+        JOIN problems p ON s.problem_id = p.id
+        WHERE s.user_id = ?
+    """
+    params = [user_id]
+    if problem_id:
+        query += " AND s.problem_id = ?"
+        params.append(problem_id)
+    query += " ORDER BY s.created_at DESC"
+
+    try:
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        submissions_list = []
+        for row in rows:
+            sub_dict = dict(row)
+            if sub_dict.get("test_results"):
+                try:
+                    sub_dict["test_results"] = json.loads(sub_dict["test_results"])
+                except Exception:
+                    sub_dict["test_results"] = []
+            submissions_list.append(sub_dict)
+        return {"status": "success", "data": submissions_list}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
+
+
+# 4.1.1. Admin lưu trực tiếp lời giải mẫu vào tệp tĩnh solution.py
+@app.put("/api/problems/{problem_id}/solution")
+def save_problem_solution(
+    problem_id: int, 
+    payload: SolutionSavePayload, 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    cursor.execute("SELECT solution_path, name FROM problems WHERE id = ?", (problem_id,))
+    prob = cursor.fetchone()
+    if not prob:
+        raise HTTPException(status_code=404, detail="Problem not found")
+    
+    solution_path = prob["solution_path"]
+    name_slug = normalize_problem_name(prob["name"])
+    
+    if not solution_path:
+        problem_folder = os.path.join(storage_path, "problems", name_slug)
+        os.makedirs(problem_folder, exist_ok=True)
+        solution_path = os.path.join(problem_folder, "solution.py")
+        cursor.execute("UPDATE problems SET solution_path = ? WHERE id = ?", (solution_path, problem_id))
+        db.commit()
+
+    try:
+        with open(solution_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(payload.solution_code.replace("\r\n", "\n"))
+        return {"status": "success", "message": "Lời giải mẫu đã được lưu và cập nhật trực tiếp thành công!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi ghi tệp tĩnh solution.py: {str(e)}")
+
+
+# 4.1.1. Admin xóa tệp tin lời giải mẫu khỏi hệ thống bài thực hành
+@app.delete("/api/problems/{problem_id}/solution")
+def delete_problem_solution(
+    problem_id: int, 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    cursor.execute("SELECT solution_path FROM problems WHERE id = ?", (problem_id,))
+    prob = cursor.fetchone()
+    if not prob:
+        raise HTTPException(status_code=404, detail="Problem not found")
+    
+    solution_path = prob["solution_path"]
+    if solution_path and os.path.exists(solution_path):
+        try:
+            os.remove(solution_path)
+        except Exception:
+            pass
+            
+    cursor.execute("UPDATE problems SET solution_path = NULL WHERE id = ?", (problem_id,))
+    db.commit()
+    return {"status": "success", "message": "Lời giải mẫu của bài tập đã bị xóa bỏ hoàn toàn."}
+
+
+# 4.1.2. Contributor gửi yêu cầu phê duyệt chỉnh sửa / thêm mới lời giải mẫu
+@app.post("/api/problems/{problem_id}/solution-proposal")
+def propose_solution_update(
+    problem_id: int, 
+    payload: ProposalCreatePayload, 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    cursor.execute("SELECT role FROM users WHERE id = ?", (payload.contributor_id,))
+    user = cursor.fetchone()
+    if not user or user["role"] not in ("contributor", "admin"):
+        raise HTTPException(status_code=403, detail="Chỉ có Contributor hoặc Admin mới có quyền tạo đề xuất.")
+        
+    try:
+        cursor.execute("""
+            INSERT INTO solution_proposals (problem_id, contributor_id, proposed_code, status)
+            VALUES (?, ?, ?, 'PENDING')
+        """, (problem_id, payload.contributor_id, payload.proposed_code))
+        db.commit()
+        return {"status": "success", "message": "Gửi yêu cầu cập nhật lời giải thành công! Vui lòng chờ Admin xét duyệt."}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+# 4.1.2. Admin lấy danh sách toàn bộ các đề xuất lời giải mẫu đang chờ kiểm duyệt
+@app.get("/api/admin/solution-proposals")
+def list_solution_proposals(
+    admin_id: int, 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    cursor.execute("SELECT role FROM users WHERE id = ?", (admin_id,))
+    user = cursor.fetchone()
+    if not user or user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Quyền truy cập hạn chế dành riêng cho Admin.")
+        
+    cursor.execute("""
+        SELECT sp.id, sp.problem_id, sp.contributor_id, sp.proposed_code, sp.status, sp.created_at,
+               u.display_name AS contributor_name,
+               p.name AS problem_name
+        FROM solution_proposals sp
+        JOIN users u ON sp.contributor_id = u.id
+        JOIN problems p ON sp.problem_id = p.id
+        WHERE sp.status = 'PENDING'
+        ORDER BY sp.created_at ASC
+    """)
+    rows = cursor.fetchall()
+    return {"status": "success", "data": [dict(row) for row in rows]}
+
+
+# 4.1.2. Admin duyệt (Ghi đè tệp tĩnh solution.py) hoặc Từ chối đề xuất cập nhật giải thuật
+@app.post("/api/admin/solution-proposals/{proposal_id}/action")
+def take_action_on_proposal(
+    proposal_id: int, 
+    payload: ProposalActionPayload, 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    cursor.execute("SELECT role FROM users WHERE id = ?", (payload.admin_id,))
+    admin = cursor.fetchone()
+    if not admin or admin["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Quyền kiểm duyệt thuộc về Admin.")
+        
+    cursor.execute("SELECT problem_id, proposed_code FROM solution_proposals WHERE id = ?", (proposal_id,))
+    proposal = cursor.fetchone()
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bản đề xuất lời giải này.")
+        
+    problem_id = proposal["problem_id"]
+    proposed_code = proposal["proposed_code"]
+    
+    if payload.action == "approve":
+        cursor.execute("SELECT solution_path, name FROM problems WHERE id = ?", (problem_id,))
+        prob = cursor.fetchone()
+        if not prob:
+            raise HTTPException(status_code=404, detail="Problem not found")
+            
+        solution_path = prob["solution_path"]
+        name_slug = normalize_problem_name(prob["name"])
+        
+        if not solution_path:
+            problem_folder = os.path.join(storage_path, "problems", name_slug)
+            os.makedirs(problem_folder, exist_ok=True)
+            solution_path = os.path.join(problem_folder, "solution.py")
+            cursor.execute("UPDATE problems SET solution_path = ? WHERE id = ?", (solution_path, problem_id))
+            db.commit()
+            
+        try:
+            with open(solution_path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(proposed_code.replace("\r\n", "\n"))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Lỗi ghi tệp tĩnh: {str(e)}")
+            
+        cursor.execute("UPDATE solution_proposals SET status = 'APPROVED' WHERE id = ?", (proposal_id,))
+        db.commit()
+        return {"status": "success", "message": "Yêu cầu đã được phê duyệt và lưu chính thức vào tệp tin solution.py!"}
+    else:
+        cursor.execute("UPDATE solution_proposals SET status = 'REJECTED' WHERE id = ?", (proposal_id,))
+        db.commit()
+        return {"status": "success", "message": "Yêu cầu cập nhật lời giải đã bị từ chối."}

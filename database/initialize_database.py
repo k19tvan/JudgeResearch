@@ -236,6 +236,21 @@ def init_db():
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
+
+    # =============== 14. Bảng Solution Proposals (Đề xuất lời giải mẫu mới) ===============
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS solution_proposals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        problem_id INTEGER NOT NULL,
+        contributor_id INTEGER NOT NULL,
+        proposed_code TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PENDING', -- PENDING, APPROVED, REJECTED
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (problem_id) REFERENCES problems(id) ON DELETE CASCADE,
+        FOREIGN KEY (contributor_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    """)
     
     con.commit()
 
