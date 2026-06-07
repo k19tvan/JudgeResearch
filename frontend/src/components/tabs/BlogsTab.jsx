@@ -19,6 +19,246 @@ function Avatar({ name = "?" }) {
   );
 }
 
+function stripHtml(html) {
+  if (!html) return "";
+  let text = html.replace(/<[^>]*>/g, " ");
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function renderBlogContent(content) {
+  if (!content) return "";
+  if (/<[a-z][\s\S]*>/i.test(content)) {
+    return <div dangerouslySetInnerHTML={{ __html: content }} />;
+  }
+  return <div style={{ whiteSpace: "pre-wrap" }}>{content}</div>;
+}
+
+function BlogContentEditor({
+  value,
+  onChange,
+  placeholder,
+  style,
+  t,
+  isLight,
+  minHeight = "150px",
+  maxHeight = "500px",
+  rows = 5
+}) {
+  const editorRef = React.useRef(null);
+  const fileInputRef = React.useRef(null);
+  const [uploading, setUploading] = React.useState(false);
+  const [isFocused, setIsFocused] = React.useState(false);
+
+  React.useEffect(() => {
+    if (editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value || "";
+    }
+  }, [value]);
+
+  const handleInput = () => {
+    if (editorRef.current) {
+      onChange(editorRef.current.innerHTML);
+    }
+  };
+
+  const handleUpload = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("image", file);
+
+    try {
+      const response = await fetch("http://localhost:21081/api/blogs/upload-image", {
+        method: "POST",
+        body: formData,
+      });
+      const result = await response.json();
+      if (response.ok && result.status === "success") {
+        const imgTag = `<img src="${result.url}" style="max-width: 100%; max-height: 500px; display: block; margin: 12px auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);" />`;
+        
+        if (editorRef.current) {
+          editorRef.current.focus();
+        }
+
+        const sel = window.getSelection();
+        if (sel.getRangeAt && sel.rangeCount) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+
+          const tempDiv = document.createElement("div");
+          tempDiv.innerHTML = imgTag;
+          const frag = document.createDocumentFragment();
+          let node;
+          let lastNode;
+          while ((node = tempDiv.firstChild)) {
+            lastNode = frag.appendChild(node);
+          }
+          range.insertNode(frag);
+
+          if (lastNode) {
+            const nextRange = range.cloneRange();
+            nextRange.setStartAfter(lastNode);
+            nextRange.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(nextRange);
+          }
+        } else {
+          if (editorRef.current) {
+            editorRef.current.innerHTML += imgTag;
+          }
+        }
+        
+        if (editorRef.current) {
+          onChange(editorRef.current.innerHTML);
+        }
+      } else {
+        alert(result.detail || "Failed to upload image.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error uploading image");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handlePaste = async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        e.preventDefault();
+        const file = items[i].getAsFile();
+        if (file) {
+          await handleUpload(file);
+        }
+      }
+    }
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      if (file.type.startsWith("image/")) {
+        await handleUpload(file);
+      }
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const isEmpty = !value || value === "" || value === "<br>" || value === "<div><br></div>" || value === "<p><br></p>";
+
+  return (
+    <div style={{ position: "relative", display: "flex", flexDirection: "column" }}>
+      {isEmpty && !isFocused && (
+        <span style={{
+          position: "absolute",
+          left: "13px",
+          top: "10px",
+          color: t.textSecondary,
+          fontSize: "13px",
+          pointerEvents: "none",
+          opacity: 0.6
+        }}>
+          {placeholder}
+        </span>
+      )}
+      <div
+        ref={editorRef}
+        contentEditable
+        onInput={handleInput}
+        onPaste={handlePaste}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        className="tk-input"
+        style={{
+          ...style,
+          minHeight: minHeight,
+          maxHeight: maxHeight,
+          overflowY: "auto",
+          paddingBottom: "44px",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word"
+        }}
+      />
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          if (e.target.files && e.target.files[0]) {
+            handleUpload(e.target.files[0]);
+            e.target.value = "";
+          }
+        }}
+      />
+      <button
+        type="button"
+        disabled={uploading}
+        onClick={() => fileInputRef.current?.click()}
+        style={{
+          position: "absolute",
+          left: "12px",
+          bottom: "12px",
+          height: "28px",
+          padding: uploading ? "0 10px" : "0",
+          width: uploading ? "auto" : "28px",
+          borderRadius: uploading ? "14px" : "50%",
+          background: uploading ? t.textMuted : t.accent,
+          color: "#fff",
+          border: "none",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: uploading ? "not-allowed" : "pointer",
+          boxShadow: "0 2px 5px rgba(0,0,0,0.2)",
+          zIndex: 10,
+          fontSize: uploading ? "11px" : "18px",
+          fontWeight: "bold",
+          transition: "all 0.2s",
+        }}
+        onMouseEnter={(e) => {
+          if (!uploading) e.target.style.transform = "scale(1.08)";
+        }}
+        onMouseLeave={(e) => {
+          if (!uploading) e.target.style.transform = "scale(1.0)";
+        }}
+      >
+        {uploading ? (
+          <span style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+            <svg
+              className="animate-spin"
+              style={{
+                animation: "spin-loader 1s linear infinite",
+                width: "12px",
+                height: "12px"
+              }}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+            >
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.25" />
+              <path d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" fill="currentColor" />
+            </svg>
+            Uploading...
+          </span>
+        ) : (
+          "+"
+        )}
+      </button>
+    </div>
+  );
+}
+
 export default function BlogsTab({ isLight = false }) {
   const [blogs, setBlogs] = useState([]);
   const [selectedBlog, setSelectedBlog] = useState(null);
@@ -577,6 +817,26 @@ export default function BlogsTab({ isLight = false }) {
         }
         .tk-primary:hover { background: ${t.accentDark} !important; }
         .tk-ghost:hover { background: ${isLight ? "#f1f5f9" : "rgba(255,255,255,0.05)"} !important; }
+        @keyframes spin-loader {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .blog-content-body img {
+          max-width: 100%;
+          height: auto;
+          border-radius: 8px;
+          display: block;
+          margin: 12px auto;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .blog-card-item {
+          transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
+        }
+        .blog-card-item:hover {
+          transform: translateY(-3px);
+          box-shadow: ${isLight ? "0 10px 25px rgba(0,0,0,0.08)" : "0 10px 25px rgba(0,0,0,0.3)"} !important;
+          border-color: ${t.accent} !important;
+        }
       `}</style>
 
       {/* ── Page Header ── */}
@@ -683,12 +943,14 @@ export default function BlogsTab({ isLight = false }) {
             </div>
             <div>
               <label style={labelStyle}>Content</label>
-              <textarea
-                required rows={6} placeholder="Enter detailed technical share content..."
+              <BlogContentEditor
+                placeholder="Enter detailed technical share content..."
                 value={newContent}
-                onChange={(e) => setNewContent(e.target.value)}
-                className="tk-input"
+                onChange={setNewContent}
                 style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+                t={t}
+                isLight={isLight}
+                rows={6}
               />
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
@@ -761,12 +1023,14 @@ export default function BlogsTab({ isLight = false }) {
                     </div>
                     <div>
                       <label style={labelStyle}>Content</label>
-                      <textarea
-                        required rows={5}
+                      <BlogContentEditor
+                        placeholder="Enter detailed technical share content..."
                         value={editBlogContent}
-                        onChange={(e) => setEditBlogContent(e.target.value)}
-                        className="tk-input"
+                        onChange={setEditBlogContent}
                         style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+                        t={t}
+                        isLight={isLight}
+                        rows={5}
                       />
                     </div>
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: "auto", paddingTop: 8 }}>
@@ -800,12 +1064,15 @@ export default function BlogsTab({ isLight = false }) {
             return (
               <div
                 key={b.id}
+                onClick={() => handleSelectBlog(b)}
+                className="blog-card-item"
                 style={{
                   background: t.surface,
                   border: `1px solid ${t.border}`,
                   borderRadius: 12, padding: 20, display: "flex", flexDirection: "column",
                   boxShadow: t.shadow,
-                  position: "relative"
+                  position: "relative",
+                  cursor: "pointer",
                 }}
               >
                 {canManage && (
@@ -925,7 +1192,7 @@ export default function BlogsTab({ isLight = false }) {
                   margin: "0 0 16px", fontSize: 12, lineHeight: 1.6, color: t.textSecondary,
                   display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden"
                 }}>
-                  {b.content}
+                  {stripHtml(b.content)}
                 </p>
 
                 <div style={{
@@ -934,14 +1201,14 @@ export default function BlogsTab({ isLight = false }) {
                 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <button
-                      onClick={() => handleVote(b.id, 1)}
+                      onClick={(e) => { e.stopPropagation(); handleVote(b.id, 1); }}
                       style={{ background: "none", border: "none", color: b.user_vote === 1 ? t.accent : t.textMuted, cursor: "pointer", fontSize: 12 }}
                     >
                       ▲
                     </button>
                     <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", fontWeight: 600, color: t.textSecondary }}>{b.score}</span>
                     <button
-                      onClick={() => handleVote(b.id, -1)}
+                      onClick={(e) => { e.stopPropagation(); handleVote(b.id, -1); }}
                       style={{ background: "none", border: "none", color: b.user_vote === -1 ? "#ef4444" : t.textMuted, cursor: "pointer", fontSize: 12 }}
                     >
                       ▼
@@ -999,12 +1266,14 @@ export default function BlogsTab({ isLight = false }) {
                 </div>
                 <div>
                   <label style={labelStyle}>Content</label>
-                  <textarea
-                    required rows={8}
+                  <BlogContentEditor
+                    placeholder="Enter detailed technical share content..."
                     value={editBlogContent}
-                    onChange={(e) => setEditBlogContent(e.target.value)}
-                    className="tk-input"
+                    onChange={setEditBlogContent}
                     style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+                    t={t}
+                    isLight={isLight}
+                    rows={8}
                   />
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
@@ -1150,12 +1419,15 @@ export default function BlogsTab({ isLight = false }) {
               <p style={{ margin: "0 0 16px", fontSize: 11, color: t.textMuted }}>
                 Author: {selectedBlog.author_name} • {new Date(selectedBlog.created_at).toLocaleString()}
               </p>
-              <p style={{
-                margin: "0 0 20px", fontSize: 13, lineHeight: 1.7, color: t.textSecondary,
-                whiteSpace: "pre-wrap", borderLeft: `3px solid ${t.accent}`, paddingLeft: 14
-              }}>
-                {selectedBlog.content}
-              </p>
+              <div
+                className="blog-content-body"
+                style={{
+                  margin: "0 0 20px", fontSize: 13, lineHeight: 1.7, color: t.textSecondary,
+                  borderLeft: `3px solid ${t.accent}`, paddingLeft: 14
+                }}
+              >
+                {renderBlogContent(selectedBlog.content)}
+              </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 10, borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
                 <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 600 }}>Helpful Article?</span>

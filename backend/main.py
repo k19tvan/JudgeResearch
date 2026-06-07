@@ -39,9 +39,11 @@ import sys
 os.makedirs("database", exist_ok=True)
 os.makedirs("storage/problems", exist_ok=True)
 os.makedirs("storage/tickets", exist_ok=True)
+os.makedirs("storage/blogs", exist_ok=True)
 
 app = FastAPI()
 app.mount("/tickets_media", StaticFiles(directory="storage/tickets"), name="tickets_media")
+app.mount("/blogs_media", StaticFiles(directory="storage/blogs"), name="blogs_media")
 app.mount("/avatars", StaticFiles(directory="storage/avatars"), name="avatars")
 
 app.add_middleware(
@@ -58,7 +60,7 @@ load_dotenv()
 EMAIL_FORMAT_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 api_key = os.getenv("GEMINI_API_KEY")
-client = genai.Client()
+client = genai.Client(api_key=api_key)
 
 def ensure_schema_migrations():
     conn = sqlite3.connect("database/database.db", check_same_thread=False)
@@ -2898,6 +2900,20 @@ def create_blog(payload: BlogCreate, db: sqlite3.Connection = Depends(get_db)):
     except sqlite3.Error as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/blogs/upload-image")
+async def upload_blog_image(image: UploadFile = File(...)):
+    if not image.filename:
+        raise HTTPException(status_code=400, detail="No file selected")
+    ext = image.filename.split('.')[-1]
+    filename = f"blog_{uuid.uuid4()}.{ext}"
+    file_path = os.path.join("storage", "blogs", filename)
+    try:
+        with open(file_path, "wb") as f:
+            f.write(await image.read())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to write file: {str(e)}")
+    return {"status": "success", "url": f"http://localhost:21081/blogs_media/{filename}"}
 
 @app.put("/api/blogs/{blog_id}")
 def update_blog(blog_id: int, payload: BlogUpdate, db: sqlite3.Connection = Depends(get_db)):
