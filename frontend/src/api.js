@@ -10,7 +10,7 @@ const USER_API_URL = "http://localhost:21081/api/users";
 
 // ================ CORE SECURE FETCH FUNCTION (WITH SILENT REFRESH) ================
 
-async function customFetch(url, options = {}) {
+export async function customFetch(url, options = {}) {
   let accessToken = localStorage.getItem("access_token");
 
   // Bắt buộc phải có để truyền nhận HttpOnly Cookie chéo cổng localhost
