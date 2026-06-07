@@ -3713,7 +3713,7 @@ async def update_ticket(
     try:
         cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
         user = cursor.fetchone()
-        cursor.execute("SELECT user_id FROM tickets WHERE id = ?", (ticket_id,))
+        cursor.execute("SELECT user_id, status FROM tickets WHERE id = ?", (ticket_id,))
         ticket = cursor.fetchone()
         
         if not ticket:
@@ -3761,7 +3761,7 @@ def delete_ticket(ticket_id: int, authorization: Optional[str] = Header(None), d
     try:
         cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
         user = cursor.fetchone()
-        cursor.execute("SELECT user_id FROM tickets WHERE id = ?", (ticket_id,))
+        cursor.execute("SELECT user_id, status FROM tickets WHERE id = ?", (ticket_id,))
         ticket = cursor.fetchone()
         
         if not ticket:

@@ -1,5 +1,7 @@
 // src/components/tabs/TicketsTab.jsx
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { customFetch } from "../../api";
 
 function StatusBadge({ status = "open", isLight }) {
   const cfgs = {
@@ -49,9 +51,13 @@ function Avatar({ name = "?" }) {
   );
 }
 
-function TicketRow({ ticket, onView, isLight }) {
+function TicketRow({ ticket, onView, onEdit, onDelete, isLight, currentUserId, currentUserRole }) {
   const [hovered, setHovered] = useState(false);
   const status = (ticket.status || "open").toLowerCase();
+  const isOwnerOrAdmin = currentUserRole === "admin" || String(ticket.user_id) === String(currentUserId);
+  const canModify = isOwnerOrAdmin && status !== "resolved";
+  const btnColor = isLight ? "#475569" : "#94a3b8";
+
   return (
     <tr
       onMouseEnter={() => setHovered(true)}
@@ -98,29 +104,60 @@ function TicketRow({ ticket, onView, isLight }) {
           })}
         </span>
       </td>
-      <td style={{ padding: "14px 20px", width: 100, textAlign: "right" }}>
-        <button
-          onClick={() => onView(ticket.id)}
-          style={{
-            background: isLight ? "#059669" : "transparent",
-            border: isLight ? "none" : "1px solid rgba(6,182,212,0.3)",
-            color: isLight ? "#fff" : "#22d3ee",
-            padding: "5px 14px", borderRadius: 5,
-            fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
-            cursor: "pointer", transition: "all 0.15s",
-            textTransform: "uppercase",
-          }}
-          onMouseEnter={e => {
-            if (isLight) e.currentTarget.style.background = "#047857";
-            else e.currentTarget.style.background = "rgba(6,182,212,0.08)";
-          }}
-          onMouseLeave={e => {
-            if (isLight) e.currentTarget.style.background = "#059669";
-            else e.currentTarget.style.background = "transparent";
-          }}
-        >
-          View
-        </button>
+      <td style={{ padding: "14px 20px", width: 180, textAlign: "right" }}>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+          <button
+            onClick={() => onView(ticket.id)}
+            style={{
+              background: isLight ? "#059669" : "transparent",
+              border: isLight ? "none" : "1px solid rgba(6,182,212,0.3)",
+              color: isLight ? "#fff" : "#22d3ee",
+              padding: "5px 14px", borderRadius: 5,
+              fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+              cursor: "pointer", transition: "all 0.15s",
+              textTransform: "uppercase",
+              fontFamily: "inherit"
+            }}
+            onMouseEnter={e => {
+              if (isLight) e.currentTarget.style.background = "#047857";
+              else e.currentTarget.style.background = "rgba(6,182,212,0.08)";
+            }}
+            onMouseLeave={e => {
+              if (isLight) e.currentTarget.style.background = "#059669";
+              else e.currentTarget.style.background = "transparent";
+            }}
+          >
+            View
+          </button>
+          {canModify && (
+            <>
+              <button
+                onClick={() => onEdit(ticket.id)}
+                className="tk-icon-btn"
+                style={{
+                  background: "transparent", border: "none", color: btnColor,
+                  cursor: "pointer", padding: "5px 8px", fontSize: 13,
+                  display: "flex", alignItems: "center", justifyContent: "center"
+                }}
+                title="Edit Ticket"
+              >
+                ✏️
+              </button>
+              <button
+                onClick={() => onDelete(ticket)}
+                className="tk-icon-btn"
+                style={{
+                  background: "transparent", border: "none", color: "#ef4444",
+                  cursor: "pointer", padding: "5px 8px", fontSize: 13,
+                  display: "flex", alignItems: "center", justifyContent: "center"
+                }}
+                title="Delete Ticket"
+              >
+                🗑️
+              </button>
+            </>
+          )}
+        </div>
       </td>
     </tr>
   );
@@ -154,27 +191,44 @@ export default function TicketsTab({ isLight = false }) {
   const [editReplyKeptImages, setEditReplyKeptImages] = useState([]);
   const [editReplyNewImages, setEditReplyNewImages] = useState([]);
 
+  // Custom Modals/Alerts State
+  const [ticketToDelete, setTicketToDelete] = useState(null); // holds ticket object
+  const [replyToDelete, setReplyToDelete] = useState(null); // holds reply ID
+  const [customAlertMessage, setCustomAlertMessage] = useState(null);
+  const [customSuccessMessage, setCustomSuccessMessage] = useState(null);
+  const [zoomedImage, setZoomedImage] = useState(null);
+
   const userId = localStorage.getItem("user_id");
   const userRole = localStorage.getItem("user_role");
   const token = localStorage.getItem("access_token");
 
   const loadTickets = async () => {
     try {
-      const r = await fetch(`http://localhost:21081/api/tickets?user_id=${userId}`);
+      const r = await customFetch(`http://localhost:21081/api/tickets?user_id=${userId}`);
       const d = await r.json();
       if (d.status === "success") setTickets(d.data);
     } catch (e) { console.error(e); }
   };
 
-  const loadTicketDetail = async (ticketId) => {
+  const loadTicketDetail = async (ticketId, editImmediate = false) => {
     try {
-      const r = await fetch(`http://localhost:21081/api/tickets/${ticketId}?user_id=${userId}`);
+      const r = await customFetch(`http://localhost:21081/api/tickets/${ticketId}?user_id=${userId}`);
       const d = await r.json();
       if (d.status === "success") { 
         setSelectedTicket(d.data); 
         setReplies(d.data.replies || []); 
-        setIsEditingTicket(false);
         setEditingReplyId(null);
+        if (editImmediate) {
+          setEditTicketTitle(d.data.title);
+          setEditTicketDesc(d.data.description);
+          let urls = [];
+          try { urls = JSON.parse(d.data.image_url || "[]"); } catch { urls = d.data.image_url ? [d.data.image_url] : []; }
+          setEditTicketKeptImages(urls);
+          setEditTicketNewImages([]);
+          setIsEditingTicket(true);
+        } else {
+          setIsEditingTicket(false);
+        }
       }
     } catch (e) { console.error(e); }
   };
@@ -184,7 +238,7 @@ export default function TicketsTab({ isLight = false }) {
   // --- CRUD: TICKET ---
   const handleCreateTicket = async (e) => {
     e.preventDefault();
-    if (!title.trim() || !description.trim()) { alert("Please fill in both fields."); return; }
+    if (!title.trim() || !description.trim()) { setCustomAlertMessage("Please fill in both fields."); return; }
     
     const formData = new FormData();
     formData.append("title", title);
@@ -192,15 +246,15 @@ export default function TicketsTab({ isLight = false }) {
     imageFiles.forEach((file) => formData.append("images", file));
 
     try {
-      const r = await fetch("http://localhost:21081/api/tickets", {
+      const r = await customFetch("http://localhost:21081/api/tickets", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
         body: formData,
       });
       if (r.ok) { 
         setTitle(""); setDescription(""); setImageFiles([]); setShowForm(false); loadTickets(); 
+        setCustomSuccessMessage("Ticket submitted successfully!");
       } else {
-        const err = await r.json(); alert("Error: " + err.detail);
+        const err = await r.json(); setCustomAlertMessage("Error: " + err.detail);
       }
     } catch (e) { console.error(e); }
   };
@@ -224,36 +278,42 @@ export default function TicketsTab({ isLight = false }) {
     editTicketNewImages.forEach(f => formData.append("images", f));
 
     try {
-      const r = await fetch(`http://localhost:21081/api/tickets/${selectedTicket.id}`, {
+      const r = await customFetch(`http://localhost:21081/api/tickets/${selectedTicket.id}`, {
         method: "PUT",
-        headers: { "Authorization": `Bearer ${token}` },
         body: formData,
       });
-      if (r.ok) loadTicketDetail(selectedTicket.id);
-      else { const err = await r.json(); alert("Error: " + err.detail); }
+      if (r.ok) {
+        setCustomSuccessMessage("Ticket updated successfully!");
+        loadTicketDetail(selectedTicket.id);
+      }
+      else { const err = await r.json(); setCustomAlertMessage("Error: " + err.detail); }
     } catch (e) { console.error(e); }
   };
 
-  const handleDeleteTicket = async () => {
-    if (!window.confirm("Are you sure you want to delete this ticket?")) return;
+  const confirmDeleteTicket = async (ticketId) => {
     try {
-      const r = await fetch(`http://localhost:21081/api/tickets/${selectedTicket.id}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${token}` }
+      const r = await customFetch(`http://localhost:21081/api/tickets/${ticketId}`, {
+        method: "DELETE"
       });
-      if (r.ok) { setSelectedTicket(null); loadTickets(); }
-      else { const err = await r.json(); alert("Error: " + err.detail); }
+      if (r.ok) { 
+        setCustomSuccessMessage("Ticket deleted successfully.");
+        if (selectedTicket && selectedTicket.id === ticketId) {
+          setSelectedTicket(null);
+        }
+        loadTickets(); 
+      }
+      else { const err = await r.json(); setCustomAlertMessage("Error: " + err.detail); }
     } catch (e) { console.error(e); }
   };
 
   const handleToggleStatus = async (statusValue) => {
     try {
-      const r = await fetch(`http://localhost:21081/api/tickets/${selectedTicket.id}/status`, {
-        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      const r = await customFetch(`http://localhost:21081/api/tickets/${selectedTicket.id}/status`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: Number(userId), status: statusValue }),
       });
       if (r.ok) { loadTicketDetail(selectedTicket.id); loadTickets(); }
-      else { const err = await r.json(); alert(err.detail); }
+      else { const err = await r.json(); setCustomAlertMessage(err.detail); }
     } catch (e) { console.error(e); }
   };
 
@@ -266,13 +326,12 @@ export default function TicketsTab({ isLight = false }) {
     replyImageFiles.forEach((file) => formData.append("images", file));
 
     try {
-      const r = await fetch(`http://localhost:21081/api/tickets/${selectedTicket.id}/replies`, {
+      const r = await customFetch(`http://localhost:21081/api/tickets/${selectedTicket.id}/replies`, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
         body: formData,
       });
       if (r.ok) { setReplyText(""); setReplyImageFiles([]); loadTicketDetail(selectedTicket.id); }
-      else { const err = await r.json(); alert("Error: " + err.detail); }
+      else { const err = await r.json(); setCustomAlertMessage("Error: " + err.detail); }
     } catch (e) { console.error(e); }
   };
 
@@ -293,25 +352,22 @@ export default function TicketsTab({ isLight = false }) {
     editReplyNewImages.forEach(f => formData.append("images", f));
 
     try {
-      const r = await fetch(`http://localhost:21081/api/tickets/replies/${editingReplyId}`, {
+      const r = await customFetch(`http://localhost:21081/api/tickets/replies/${editingReplyId}`, {
         method: "PUT",
-        headers: { "Authorization": `Bearer ${token}` },
         body: formData,
       });
       if (r.ok) { setEditingReplyId(null); loadTicketDetail(selectedTicket.id); }
-      else { const err = await r.json(); alert("Error: " + err.detail); }
+      else { const err = await r.json(); setCustomAlertMessage("Error: " + err.detail); }
     } catch (e) { console.error(e); }
   };
 
-  const handleDeleteReply = async (replyId) => {
-    if (!window.confirm("Delete this reply?")) return;
+  const confirmDeleteReply = async (replyId) => {
     try {
-      const r = await fetch(`http://localhost:21081/api/tickets/replies/${replyId}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${token}` }
+      const r = await customFetch(`http://localhost:21081/api/tickets/replies/${replyId}`, {
+        method: "DELETE"
       });
       if (r.ok) loadTicketDetail(selectedTicket.id);
-      else { const err = await r.json(); alert("Error: " + err.detail); }
+      else { const err = await r.json(); setCustomAlertMessage("Error: " + err.detail); }
     } catch (e) { console.error(e); }
   };
 
@@ -349,7 +405,11 @@ export default function TicketsTab({ isLight = false }) {
             <img 
               src={`http://localhost:21081${url}`} 
               alt="Attachment" 
-              style={{ maxWidth: "200px", maxHeight: "200px", borderRadius: 8, border: `1px solid ${t.border}`, objectFit: "cover" }}
+              onClick={() => { if (!isEditing) setZoomedImage(url); }}
+              style={{ 
+                maxWidth: "200px", maxHeight: "200px", borderRadius: 8, border: `1px solid ${t.border}`, 
+                objectFit: "cover", cursor: isEditing ? "default" : "zoom-in"
+              }}
             />
             {isEditing && (
               <button 
@@ -358,7 +418,8 @@ export default function TicketsTab({ isLight = false }) {
                 style={{ 
                   position: "absolute", top: -8, right: -8, background: "#ef4444", color: "#fff", 
                   border: "none", borderRadius: "50%", width: 22, height: 22, cursor: "pointer", 
-                  fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 4px rgba(0,0,0,0.2)"
+                  fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                  fontFamily: "inherit"
                 }}
               >×</button>
             )}
@@ -415,8 +476,8 @@ export default function TicketsTab({ isLight = false }) {
                   <input type="file" accept="image/*" multiple onChange={e => setImageFiles(Array.from(e.target.files))} style={{ fontSize: 12, color: t.textSecondary }} />
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                  <button type="button" className="tk-ghost" onClick={() => setShowForm(false)} style={{ background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary, borderRadius: 7, padding: "8px 16px", fontSize: 12, cursor: "pointer" }}>Cancel</button>
-                  <button type="submit" className="tk-primary" style={{ background: t.accent, border: "none", color: "#fff", borderRadius: 7, padding: "8px 20px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Submit Ticket</button>
+                  <button type="button" className="tk-ghost" onClick={() => setShowForm(false)} style={{ background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary, borderRadius: 7, padding: "8px 16px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+                  <button type="submit" className="tk-primary" style={{ background: t.accent, border: "none", color: "#fff", borderRadius: 7, padding: "8px 20px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Submit Ticket</button>
                 </div>
               </form>
             </div>
@@ -428,14 +489,25 @@ export default function TicketsTab({ isLight = false }) {
               <thead>
                 <tr style={{ background: t.tableHeadBg, borderBottom: `1px solid ${t.border}` }}>
                   {["Ticket ID", "Title", "Requester", "Status", "Last Updated", ""].map((h, i) => (
-                    <th key={i} style={{ padding: "12px 20px", textAlign: i === 3 ? "center" : i === 5 ? "right" : "left", fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: isLight ? "#fff" : t.textSecondary, fontFamily: "'DM Mono', monospace" }}>{h}</th>
+                    <th key={i} style={{ padding: "12px 20px", textAlign: i === 3 ? "center" : i === 5 ? "right" : "left", fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: isLight ? "#fff" : t.textSecondary, fontFamily: "'DM Mono', monospace", width: i === 5 ? 180 : undefined }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {tickets.length === 0 ? (
                   <tr><td colSpan={6} style={{ textAlign: "center", padding: "48px 20px", color: t.textSecondary, fontSize: 13 }}>No support tickets yet</td></tr>
-                ) : tickets.map(t_ => <TicketRow key={t_.id} ticket={t_} onView={loadTicketDetail} isLight={isLight} />)}
+                ) : tickets.map(t_ => (
+                  <TicketRow 
+                    key={t_.id} 
+                    ticket={t_} 
+                    onView={loadTicketDetail} 
+                    onEdit={(id) => loadTicketDetail(id, true)}
+                    onDelete={(t) => setTicketToDelete(t)}
+                    isLight={isLight} 
+                    currentUserId={userId}
+                    currentUserRole={userRole}
+                  />
+                ))}
               </tbody>
             </table>
           </div>
@@ -475,8 +547,8 @@ export default function TicketsTab({ isLight = false }) {
                     </div>
 
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                      <button type="button" onClick={() => setIsEditingTicket(false)} style={{ background: "transparent", border: `1px solid ${t.border}`, color: t.textPrimary, padding: "6px 12px", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
-                      <button type="submit" style={{ background: t.accent, border: "none", color: "#fff", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}>Save Changes</button>
+                      <button type="button" className="tk-ghost" onClick={() => setIsEditingTicket(false)} style={{ background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary, padding: "8px 16px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>Cancel</button>
+                      <button type="submit" className="tk-primary" style={{ background: t.accent, border: "none", color: "#fff", padding: "8px 20px", borderRadius: 7, cursor: "pointer", fontWeight: 600, fontFamily: "inherit", fontSize: 12 }}>Save Changes</button>
                     </div>
                   </form>
                 ) : (
@@ -493,7 +565,7 @@ export default function TicketsTab({ isLight = false }) {
                           <button onClick={startEditTicket} className="tk-icon-btn" style={{ background: "transparent", border: "none", color: t.textSecondary, cursor: "pointer", padding: 4 }}>
                             ✏️
                           </button>
-                          <button onClick={handleDeleteTicket} className="tk-icon-btn" style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", padding: 4 }}>
+                          <button onClick={() => setTicketToDelete(selectedTicket)} className="tk-icon-btn" style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", padding: 4 }}>
                             🗑️
                           </button>
                         </div>
@@ -547,8 +619,8 @@ export default function TicketsTab({ isLight = false }) {
                             <input type="file" multiple accept="image/*" onChange={e => setEditReplyNewImages(Array.from(e.target.files))} style={{ fontSize: 11, color: t.textPrimary }} />
                           </div>
                           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
-                            <button type="button" onClick={() => setEditingReplyId(null)} style={{ background: "transparent", border: `1px solid ${t.border}`, color: t.textPrimary, padding: "4px 10px", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>Cancel</button>
-                            <button type="submit" style={{ background: t.accent, border: "none", color: "#fff", padding: "4px 10px", borderRadius: 4, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Save</button>
+                            <button type="button" className="tk-ghost" onClick={() => setEditingReplyId(null)} style={{ background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary, padding: "6px 14px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>Cancel</button>
+                            <button type="submit" className="tk-primary" style={{ background: t.accent, border: "none", color: "#fff", padding: "6px 16px", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>Save</button>
                           </div>
                         </form>
                       );
@@ -567,8 +639,8 @@ export default function TicketsTab({ isLight = false }) {
                             {/* Reply Actions (Edit/Delete) */}
                             {isOwner && selectedTicket.status !== "resolved" && (
                               <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                                <button onClick={() => startEditReply(reply)} className="tk-icon-btn" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: t.textMuted }}>Edit</button>
-                                <button onClick={() => handleDeleteReply(reply.id)} className="tk-icon-btn" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#ef4444" }}>Delete</button>
+                                <button onClick={() => startEditReply(reply)} className="tk-icon-btn" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: t.textMuted, fontFamily: "inherit" }}>Edit</button>
+                                <button onClick={() => setReplyToDelete(reply.id)} className="tk-icon-btn" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#ef4444", fontFamily: "inherit" }}>Delete</button>
                               </div>
                             )}
                           </div>
@@ -644,6 +716,222 @@ export default function TicketsTab({ isLight = false }) {
 
           </div>
         </>
+      )}
+
+      {ticketToDelete && createPortal(
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1300, display: "flex",
+          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          padding: 16
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400, background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 12, padding: 20, boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+            fontFamily: "'Inter var', 'Inter', sans-serif", color: t.textPrimary,
+            position: "relative"
+          }}>
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "#ef4444"
+            }} />
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: isLight ? "#be123c" : "#f87171" }}>
+              Delete Ticket
+            </h4>
+            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
+              Are you sure you want to delete ticket <strong>#TCK_{String(ticketToDelete.id).padStart(4, "0")}</strong>? This action cannot be undone and will delete all replies.
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setTicketToDelete(null)}
+                style={{
+                  background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary,
+                  borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                  fontFamily: "inherit"
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const id = ticketToDelete.id;
+                  setTicketToDelete(null);
+                  confirmDeleteTicket(id);
+                }}
+                style={{
+                  background: "#ef4444", border: "none", color: "#fff",
+                  borderRadius: 6, padding: "6px 14px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "inherit"
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {replyToDelete && createPortal(
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1300, display: "flex",
+          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          padding: 16
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400, background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 12, padding: 20, boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+            fontFamily: "'Inter var', 'Inter', sans-serif", color: t.textPrimary,
+            position: "relative"
+          }}>
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "#ef4444"
+            }} />
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: isLight ? "#be123c" : "#f87171" }}>
+              Delete Reply
+            </h4>
+            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
+              Are you sure you want to delete this reply?
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setReplyToDelete(null)}
+                style={{
+                  background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary,
+                  borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                  fontFamily: "inherit"
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const id = replyToDelete;
+                  setReplyToDelete(null);
+                  confirmDeleteReply(id);
+                }}
+                style={{
+                  background: "#ef4444", border: "none", color: "#fff",
+                  borderRadius: 6, padding: "6px 14px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "inherit"
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {customAlertMessage && createPortal(
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1400, display: "flex",
+          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          padding: 16
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400, background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 12, padding: 20, boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+            fontFamily: "'Inter var', 'Inter', sans-serif", color: t.textPrimary,
+            position: "relative"
+          }}>
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "#ef4444"
+            }} />
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: "#ef4444" }}>
+              Alert
+            </h4>
+            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
+              {customAlertMessage}
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setCustomAlertMessage(null)}
+                style={{
+                  background: "#ef4444", border: "none", color: "#fff",
+                  borderRadius: 6, padding: "6px 16px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "inherit"
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {customSuccessMessage && createPortal(
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1400, display: "flex",
+          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          padding: 16
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400, background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 12, padding: 20, boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+            fontFamily: "'Inter var', 'Inter', sans-serif", color: t.textPrimary,
+            position: "relative"
+          }}>
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "#10b981"
+            }} />
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: "#10b981" }}>
+              Success
+            </h4>
+            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
+              {customSuccessMessage}
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setCustomSuccessMessage(null)}
+                style={{
+                  background: "#10b981", border: "none", color: "#fff",
+                  borderRadius: 6, padding: "6px 16px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "inherit"
+                }}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {zoomedImage && createPortal(
+        <div 
+          onClick={() => setZoomedImage(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 1500, display: "flex",
+            alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.85)",
+            backdropFilter: "blur(4px)", padding: 24, cursor: "zoom-out"
+          }}
+        >
+          <img 
+            src={`http://localhost:21081${zoomedImage}`} 
+            alt="Zoomed attachment" 
+            style={{ 
+              maxWidth: "90%", maxHeight: "90%", borderRadius: 12,
+              boxShadow: "0 20px 50px rgba(0,0,0,0.5)", objectFit: "contain",
+              border: "1px solid rgba(255,255,255,0.15)"
+            }} 
+          />
+        </div>,
+        document.body
       )}
     </div>
   );
