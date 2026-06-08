@@ -3,7 +3,7 @@ import secrets
 import sqlite3
 from google import genai
 import jwt
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Header, Response, Cookie
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Header, Response, Cookie, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
@@ -281,9 +281,8 @@ class ProposalActionPayload(BaseModel):
     admin_id: int
     action: str  # "approve" hoặc "reject"
 
-
-
-
+class UpdateDraftProblemsRequest(BaseModel):
+    problems: List[ProposedProblem]
 
 
 
@@ -1648,10 +1647,10 @@ def get_my_requests(user_id: int, db: sqlite3.Connection = Depends(get_db)):
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
-# Usecase: Generate proposed problems from GitHub repository using AI (DeepWiki)
-@app.post("/api/problems/problems_from_repo", response_model=ProblemsFromRepoResponse)
+@app.post("/api/problems/problems_from_repo")
 def get_problems_from_repo(
     payload: ProblemsFromRepo, 
+    background_tasks: BackgroundTasks,
     authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -1668,69 +1667,35 @@ def get_problems_from_repo(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    cache_data = check_wiki_cache(owner, repo)  
-    if not cache_data: 
-        print(f"[Warning] Repo {owner}/{repo} wasn't cached. DeepWiki will take more time to investigate.")
-
     try:
-        question_prompt = get_problems_from_repo_prompt.format(
-            repository_url=payload.repository_url,
-            level=payload.level,
-            framework=payload.framework or 'Auto-detect',
-            user_note=payload.user_note or 'None'
-        )
-
-        ai_raw_response = ask_question(payload.repository_url, question_prompt)
-        try:
-            json_string = clean_json_response(ai_raw_response)
-            parsed_problems = [ProposedProblem(**item) for item in json.loads(json_string)]
-        except Exception as e:
-            print(f"[Error] Initial AI response parsing failed: {str(e)}")
-            num_tries = 3
-            for _ in range(num_tries):
-                try:
-                    print(f"[Info] Attempting to fix AI response format... (Attempt {_ + 1}/{num_tries})")
-                    ai_raw_response_fixed = fix_problem_from_repo_response(ai_raw_response)
-                    json_string = clean_json_response(ai_raw_response_fixed)
-                    parsed_problems = [ProposedProblem(**item) for item in json.loads(json_string)]
-                    print(f"[Info] Successfully fixed AI response on attempt {_ + 1}")
-                    break
-                except json.JSONDecodeError:
-                    print(f"[Error] AI response still has invalid JSON format. Attempting to fix again... (Attempt {_ + 1}/{num_tries})")
-                    if (_ == num_tries - 1):
-                        raise HTTPException(status_code=502, detail="AI generated an invalid format after multiple attempts.")
-                    
-        cursor = db.cursor()
+        # Khởi tạo bản ghi nháp với trạng thái "processing"
         cursor.execute("""
             INSERT INTO draft_problem_sessions (roadmap_name, repository_url, user_id, problems_json, num_test_cases, status)
-            VALUES (?, ?, ?, ?, ?, 'draft')
-        """, (payload.roadmap_name, payload.repository_url, payload.user_id, json_string, payload.num_test_cases))
-        
+            VALUES (?, ?, ?, ?, ?, 'processing')
+        """, (payload.roadmap_name, payload.repository_url, uid, "[]", payload.num_test_cases))
         db.commit()
         session_id = cursor.lastrowid
         
-        return ProblemsFromRepoResponse(
-            status="success",
-            message="Generated proposed problem list successfully.",
-            data=ProblemsFromRepoDataResponse(
-                session_id=session_id,
-                repository_url=payload.repository_url,
-                roadmap_name=payload.roadmap_name,
-                proposed_problems=parsed_problems
-            )
+        # Đưa tác vụ phân tích AI và sửa định dạng vào luồng ngầm xử lý
+        background_tasks.add_task(
+            background_repo_problems_generator, 
+            session_id, 
+            payload.dict()
         )
         
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=502, detail="AI generated an invalid format.")
-    except ValidationError as e:
-        raise HTTPException(status_code=502, detail="AI response did not match the schema structure.")
+        return {
+            "status": "success",
+            "message": "AI analysis started in background.",
+            "data": {
+                "session_id": session_id,
+                "repository_url": payload.repository_url,
+                "roadmap_name": payload.roadmap_name,
+                "proposed_problems": []
+            }
+        }
     except sqlite3.Error as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 @app.get("/api/problems/draft_sessions")
 def get_draft_sessions(user_id: int, db: sqlite3.Connection = Depends(get_db)):
@@ -1797,6 +1762,40 @@ def list_managed_users(
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
+@app.delete("/api/problems/draft_sessions/{session_id}")
+def delete_draft_session(
+    session_id: int, 
+    authorization: Optional[str] = Header(None), 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    try:
+        # 1. Xác thực người dùng qua JWT token
+        identity = get_authenticated_identity(authorization)
+        uid = identity.get("user_id")
+        
+        # 2. Kiểm tra quyền sở hữu
+        cursor.execute("SELECT user_id FROM draft_problem_sessions WHERE id = ?", (session_id,))
+        session = cursor.fetchone()
+        if not session:
+            raise HTTPException(status_code=404, detail="Draft session not found")
+            
+        cursor.execute("SELECT role FROM users WHERE id = ?", (uid,))
+        user_row = cursor.fetchone()
+        role = user_row["role"] if user_row else "user"
+        
+        # Chỉ có chính chủ sở hữu nháp đó hoặc Admin mới có quyền xóa nháp
+        if role != "admin" and int(uid) != int(session["user_id"]):
+            raise HTTPException(status_code=403, detail="Unauthorized to delete this draft session")
+            
+        # 3. Tiến hành xóa khỏi database
+        cursor.execute("DELETE FROM draft_problem_sessions WHERE id = ?", (session_id,))
+        db.commit()
+        return {"status": "success", "message": "Draft session deleted successfully"}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database execution error: {str(e)}")
+    
 @app.post("/api/problems/draft_sessions/feedback")
 def update_draft_session_with_feedback(payload: FeedbackRequest, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
@@ -2011,6 +2010,11 @@ def list_roadmaps(
             except Exception:
                 pass
 
+        # Vá lỗi IDOR: Nếu không phải admin, và target ID khác với ID thực tế của token, ép buộc về chế độ công khai (public)
+        target_uid = user_id if user_id is not None else current_user_id
+        if current_role != "admin" and int(target_uid or 0) != int(current_user_id or 0):
+            filter_mode = "public"
+
         if filter_mode == "public" or current_role == "user" or (not current_user_id and not user_id):
             cursor.execute("""
                 SELECT r.id, r.name, r.repository_url, r.level, r.num_test_cases, r.status, r.created_at,
@@ -2022,9 +2026,8 @@ def list_roadmaps(
                 ORDER BY r.id DESC
             """)
         else:
-            target_uid = user_id if user_id is not None else current_user_id
             if current_role == "admin":
-                # Admin: Chỉ xem public, pending và roadmap do chính mình tạo (bỏ xem private của contributor khác)
+                # Admin được phép lọc theo bất kỳ ID người dùng mục tiêu nào
                 cursor.execute("""
                     SELECT r.id, r.name, r.repository_url, r.level, r.num_test_cases, r.status, r.created_at,
                            COUNT(rp.problem_id) AS problem_count
@@ -2033,8 +2036,9 @@ def list_roadmaps(
                     WHERE r.status IN ('public', 'pending') OR r.user_id = ?
                     GROUP BY r.id
                     ORDER BY r.id DESC
-                """, (current_user_id,))
+                """, (target_uid,))
             else:
+                # Contributor chỉ được xem lộ trình cá nhân của chính họ
                 cursor.execute("""
                     SELECT r.id, r.name, r.repository_url, r.level, r.num_test_cases, r.status, r.created_at,
                            COUNT(rp.problem_id) AS problem_count
@@ -2043,7 +2047,7 @@ def list_roadmaps(
                     WHERE r.status = 'public' OR r.user_id = ?
                     GROUP BY r.id
                     ORDER BY r.id DESC
-                """, (target_uid,))
+                """, (current_user_id,))
                 
         return {"status": "success", "data": [dict(row) for row in cursor.fetchall()]}
     except sqlite3.Error as e:
@@ -2052,13 +2056,13 @@ def list_roadmaps(
 @app.post("/api/roadmap-steps/{step_id}/create_detailedly")
 def create_problem_detailedly(
     step_id: int, 
+    background_tasks: BackgroundTasks,
     authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
-    
     cursor.execute("""
-        SELECT rp.name, r.repository_url, r.name AS roadmap_name, r.num_test_cases, r.user_id
+        SELECT rp.name, r.repository_url, r.name AS roadmap_name, r.num_test_cases, r.user_id, rp.status
         FROM roadmap_problems rp
         JOIN roadmaps r ON rp.roadmap_id = r.id
         WHERE rp.id = ?
@@ -2076,132 +2080,75 @@ def create_problem_detailedly(
     cursor.execute("SELECT role FROM users WHERE id = ?", (uid,))
     user_row = cursor.fetchone()
     role = user_row["role"] if user_row else "user"
+    
     if role != "admin" and int(uid) != int(owner_id):
         raise HTTPException(status_code=403, detail="Unauthorized. Owner or Admin only.")
-        
-    name = record["name"]
-    repo_url = record["repository_url"]
-    roadmap_name = record["roadmap_name"]
-    num_test_cases = record["num_test_cases"] or 3
+
+    if record["status"] == "generating":
+        raise HTTPException(status_code=400, detail="Generation is already running for this step.")
+
+    # Cập nhật trạng thái "generating" ngay lập tức
+    cursor.execute("UPDATE roadmap_problems SET status = 'generating', error_message = NULL WHERE id = ?", (step_id,))
+    db.commit()
     
-    draft_folder = f"{storage_path}draft_problems/{step_id}"
+    background_tasks.add_task(
+        background_step_material_generator,
+        step_id,
+        record["num_test_cases"] or 3,
+        record["name"],
+        record["repository_url"],
+        record["roadmap_name"]
+    )
     
-    try:
-        question_prompt = create_detailedly_prompt.format(
-            title=name,
-            repository_url=repo_url,
-            roadmap_title=roadmap_name,
-            num_test_cases=num_test_cases
-        )
-    except KeyError as e:
-        raise HTTPException(status_code=500, detail=f"Prompt formatting error: {str(e)}")
-
-    ai_raw_response = ask_question(repo_url, question_prompt)
-    ai_raw_response = fix_create_detailed_response(ai_raw_response)
-    try:
-        raw_json_data = parse_and_repair_json(ai_raw_response)
-        raw_json_data = validate_and_ensure_complete_materials(raw_json_data)
-        materials = DetailedProblemMaterials(**raw_json_data)
-        
-        statement_path = os.path.join(draft_folder, "statement.md")
-        theory_path = os.path.join(draft_folder, "theory.md")
-        tutorial_path = os.path.join(draft_folder, "tutorial.md")
-        solution_path = os.path.join(draft_folder, "solution.py")
-        coding_path = os.path.join(draft_folder, "coding.py")
-        checker_path = os.path.join(draft_folder, "checker.py")
-
-        os.makedirs(draft_folder, exist_ok=True)
-        
-        with open(statement_path, "w", encoding="utf-8") as f:
-            f.write(materials.statement)
-        with open(theory_path, "w", encoding="utf-8") as f:
-            f.write(materials.theory)
-        with open(tutorial_path, "w", encoding="utf-8") as f:
-            f.write(materials.tutorial)
-        with open(solution_path, "w", encoding="utf-8") as f:
-            f.write(extract_python_code(materials.solution))
-        with open(coding_path, "w", encoding="utf-8") as f:
-            f.write(extract_python_code(materials.coding))
-        with open(checker_path, "w", encoding="utf-8") as f:
-            f.write(extract_python_code(materials.checker))
-        
-        temp_input_dir = os.path.join(draft_folder, "inputs")
-        temp_output_dir = os.path.join(draft_folder, "outputs")
-        os.makedirs(temp_input_dir, exist_ok=True)
-        os.makedirs(temp_output_dir, exist_ok=True)
-
-        try:
-            test_inputs_list = json.loads(materials.test_inputs)
-        except Exception:
-            test_inputs_list = []
-
-        if len(test_inputs_list) < num_test_cases:
-            while len(test_inputs_list) < num_test_cases:
-                test_inputs_list.append(test_inputs_list[-1] if test_inputs_list else {})
-
-        for i in range(1, num_test_cases + 1):
-            inp = test_inputs_list[i - 1]
-            inp_file_path = os.path.join(temp_input_dir, f"input_{i}.json")
-            out_file_path = os.path.join(temp_output_dir, f"output_{i}.json")
-            
-            with open(inp_file_path, "w", encoding="utf-8") as f_in:
-                json.dump(inp, f_in)
-                
-            temp_input_json = os.path.join(draft_folder, "input.json")
-            temp_output_json = os.path.join(draft_folder, "output.json")
-            
-            with open(temp_input_json, "w", encoding="utf-8") as f_temp:
-                json.dump(inp, f_temp)
-                
-            try:
-                process = subprocess.run(
-                    [sys.executable, "solution.py"],
-                    cwd=draft_folder,
-                    capture_output=True,
-                    text=True,
-                    timeout=5.0
-                )
-                
-                if process.returncode == 0 and os.path.exists(temp_output_json):
-                    shutil.copy2(temp_output_json, out_file_path)
-                else:
-                    print(f"[ERROR] Generator failed for testcase {i}")
-                    with open(out_file_path, "w", encoding="utf-8") as f_out:
-                        json.dump({"error": "failed"}, f_out)
-            except Exception as e:
-                with open(out_file_path, "w", encoding="utf-8") as f_out:
-                    json.dump({"error": str(e)}, f_out)
-            finally:
-                if os.path.exists(temp_input_json):
-                    os.remove(temp_input_json)
-                if os.path.exists(temp_output_json):
-                    os.remove(temp_output_json)
-
-        input_zip_path = os.path.join(draft_folder, "input.zip")
-        output_zip_path = os.path.join(draft_folder, "output.zip")
-
-        with zipfile.ZipFile(input_zip_path, 'w') as zip_in:
-            for file in sorted(os.listdir(temp_input_dir)):
-                zip_in.write(os.path.join(temp_input_dir, file), arcname=file)
-
-        with zipfile.ZipFile(output_zip_path, 'w') as zip_out:
-            for file in sorted(os.listdir(temp_output_dir)):
-                zip_out.write(os.path.join(temp_output_dir, file), arcname=file)
-
-        cursor.execute("UPDATE roadmap_problems SET status = 'generated' WHERE id = ?", (step_id,))
-        db.commit()
-        
-        return {
-            "status": "success",
-            "message": f"Successfully generated draft materials.",
-            "data": {
-                "step_id": step_id,
-                "status": "generated"
-            }
+    return {
+        "status": "success",
+        "message": "AI Generation has been scheduled in background.",
+        "data": {
+            "step_id": step_id,
+            "status": "generating"
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Draft generation failed: {str(e)}")
+    }
+
+@app.post("/api/roadmaps/{roadmap_id}/generate_all")
+def generate_all_roadmap_steps(
+    roadmap_id: int, 
+    background_tasks: BackgroundTasks,
+    authorization: Optional[str] = Header(None), 
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    cursor.execute("SELECT user_id, status, name, repository_url, num_test_cases FROM roadmaps WHERE id = ?", (roadmap_id,))
+    roadmap = cursor.fetchone()
+    if not roadmap:
+        raise HTTPException(status_code=404, detail="Roadmap not found")
+        
+    identity = get_authenticated_identity(authorization)
+    uid = identity.get("user_id")
+    cursor.execute("SELECT role FROM users WHERE id = ?", (uid,))
+    user_row = cursor.fetchone()
+    role = user_row["role"] if user_row else "user"
     
+    if role != "admin" and int(uid) != int(roadmap["user_id"]):
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    # Lấy toàn bộ các bước đang ở trạng thái chờ (pending) hoặc đã từng bị lỗi (failed) để chạy lại
+    cursor.execute("SELECT id, name FROM roadmap_problems WHERE roadmap_id = ? AND status IN ('pending', 'failed')", (roadmap_id,))
+    pending_steps = cursor.fetchall()
+    
+    for step in pending_steps:
+        cursor.execute("UPDATE roadmap_problems SET status = 'generating', error_message = NULL WHERE id = ?", (step["id"],))
+        background_tasks.add_task(
+            background_step_material_generator,
+            step["id"],
+            roadmap["num_test_cases"] or 3,
+            step["name"],
+            roadmap["repository_url"],
+            roadmap["name"]
+        )
+        
+    db.commit()
+    return {"status": "success", "message": f"Successfully queued background generation for {len(pending_steps)} pending steps."}
+
 @app.post("/api/roadmap-steps/{step_id}/save_to_problem")
 def save_step_to_problem(
     step_id: int, 
@@ -2588,7 +2535,7 @@ def get_draft_session_detail(session_id: int, db: sqlite3.Connection = Depends(g
     cursor = db.cursor()
     try:
         cursor.execute("""
-            SELECT id, roadmap_name, repository_url, user_id, problems_json, num_test_cases, status, created_at, updated_at
+            SELECT id, roadmap_name, repository_url, user_id, problems_json, num_test_cases, status, error_message, created_at, updated_at
             FROM draft_problem_sessions
             WHERE id = ?
         """, (session_id,))
@@ -2596,10 +2543,12 @@ def get_draft_session_detail(session_id: int, db: sqlite3.Connection = Depends(g
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        try:
-            proposed_problems = [ProposedProblem(**item) for item in json.loads(session["problems_json"])]
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Invalid stored draft JSON: {str(e)}")
+        proposed_problems = []
+        if session["problems_json"]:
+            try:
+                proposed_problems = [ProposedProblem(**item) for item in json.loads(session["problems_json"])]
+            except Exception:
+                pass
 
         return {
             "status": "success",
@@ -2609,6 +2558,7 @@ def get_draft_session_detail(session_id: int, db: sqlite3.Connection = Depends(g
                 "repository_url": session["repository_url"],
                 "user_id": session["user_id"],
                 "status": session["status"],
+                "error_message": session["error_message"],
                 "num_test_cases": session["num_test_cases"],
                 "created_at": session["created_at"],
                 "updated_at": session["updated_at"],
@@ -2618,6 +2568,38 @@ def get_draft_session_detail(session_id: int, db: sqlite3.Connection = Depends(g
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
+@app.put("/api/problems/draft_sessions/{session_id}")
+def update_draft_session_problems(
+    session_id: int, 
+    payload: UpdateDraftProblemsRequest, 
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    identity = get_authenticated_identity(authorization)
+    uid = identity.get("user_id")
+
+    cursor.execute("SELECT user_id FROM draft_problem_sessions WHERE id = ?", (session_id,))
+    session = cursor.fetchone()
+    if not session:
+        raise HTTPException(status_code=404, detail="Draft session not found")
+    
+    if int(session["user_id"]) != int(uid):
+        raise HTTPException(status_code=403, detail="You do not own this draft session")
+
+    problems_json_str = json.dumps([p.dict() for p in payload.problems])
+    try:
+        cursor.execute("""
+            UPDATE draft_problem_sessions 
+            SET problems_json = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (problems_json_str, session_id))
+        db.commit()
+        return {"status": "success", "message": "Draft problems modified successfully."}
+    except sqlite3.Error as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    
 # Usecase: Lấy danh sách testcase của bài tập
 @app.get("/api/problems/{problem_id}/testcases")
 def get_problem_testcases(problem_id: int, db: sqlite3.Connection = Depends(get_db)):
@@ -3877,3 +3859,167 @@ def delete_ticket_reply(reply_id: int, authorization: Optional[str] = Header(Non
     except sqlite3.Error as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+def background_repo_problems_generator(session_id: int, payload_dict: dict):
+    db = sqlite3.connect("database/database.db", check_same_thread=False)
+    db.row_factory = sqlite3.Row
+    cursor = db.cursor()
+    print(f"\n[INFO] Khởi động tiến trình thiết kế bài tập ngầm cho Session #{session_id}...")
+    try:
+        question_prompt = get_problems_from_repo_prompt.format(
+            repository_url=payload_dict["repository_url"],
+            level=payload_dict["level"],
+            framework=payload_dict["framework"] or 'Auto-detect',
+            user_note=payload_dict["user_note"] or 'None'
+        )
+        print(f"[INFO] Đang gửi yêu cầu phân tích tới DeepWiki cho Session #{session_id}...")
+        ai_raw_response = ask_question(payload_dict["repository_url"], question_prompt)
+        print(f"[INFO] Đã nhận phản hồi từ AI cho Session #{session_id}. Đang phân tích định dạng...")
+        
+        json_string = ""
+        try:
+            json_string = clean_json_response(ai_raw_response)
+            json.loads(json_string) # Kiểm tra tính hợp lệ của JSON
+        except Exception:
+            try:
+                print(f"[WARN] JSON ban đầu lỗi cấu trúc. Đang tiến hành tự sửa lỗi tự động...")
+                with open("debug_ai_response.txt", "w", encoding="utf-8") as f:
+                    f.write(ai_raw_response)
+                ai_raw_response_fixed = fix_problem_from_repo_response(ai_raw_response)
+                json_string = clean_json_response(ai_raw_response_fixed)
+                json.loads(json_string)
+            except Exception as ex:
+                raise Exception(f"AI response format invalid and unrepairable: {str(ex)}")
+
+        cursor.execute("""
+            UPDATE draft_problem_sessions 
+            SET problems_json = ?, status = 'draft', error_message = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (json_string, session_id))
+        db.commit()
+        print(f"[SUCCESS] Đồng bộ danh sách bài tập đề xuất thành công cho Session #{session_id}!\n")
+    except Exception as e:
+        print(f"\n[ERROR] Tiến trình ngầm của Session #{session_id} thất bại:")
+        traceback.print_exc() # In chi tiết toàn bộ vết lỗi Python ra Terminal
+        cursor.execute("""
+            UPDATE draft_problem_sessions 
+            SET status = 'failed', error_message = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (str(e), session_id))
+        db.commit()
+    finally:
+        db.close()
+
+def background_step_material_generator(step_id: int, num_test_cases: int, name: str, repo_url: str, roadmap_name: str):
+    db = sqlite3.connect("database/database.db", check_same_thread=False)
+    db.row_factory = sqlite3.Row
+    cursor = db.cursor()
+    draft_folder = f"storage/draft_problems/{step_id}"
+    print(f"\n[INFO] Khởi động tiến trình sinh tư liệu ngầm cho Step #{step_id}: '{name}'...")
+    try:
+        question_prompt = create_detailedly_prompt.format(
+            title=name,
+            repository_url=repo_url,
+            roadmap_title=roadmap_name,
+            num_test_cases=num_test_cases
+        )
+
+        print(f"[INFO] Đang gửi yêu cầu thiết kế chi tiết Step #{step_id} tới AI...")
+        ai_raw_response = ask_question(repo_url, question_prompt)
+        ai_raw_response = fix_create_detailed_response(ai_raw_response)
+        print(f"[INFO] Đã nhận phản hồi từ AI. Tiến hành phân tách tệp tin...")
+
+        raw_json_data = parse_and_repair_json(ai_raw_response)
+        raw_json_data = validate_and_ensure_complete_materials(raw_json_data)
+        materials = DetailedProblemMaterials(**raw_json_data)
+
+        os.makedirs(draft_folder, exist_ok=True)
+        
+        # Lưu trữ các file markdown và code mẫu
+        with open(os.path.join(draft_folder, "statement.md"), "w", encoding="utf-8") as f: f.write(materials.statement)
+        with open(os.path.join(draft_folder, "theory.md"), "w", encoding="utf-8") as f: f.write(materials.theory)
+        with open(os.path.join(draft_folder, "tutorial.md"), "w", encoding="utf-8") as f: f.write(materials.tutorial)
+        
+        sol_code = extract_python_code(materials.solution)
+        with open(os.path.join(draft_folder, "solution.py"), "w", encoding="utf-8") as f: f.write(sol_code)
+        with open(os.path.join(draft_folder, "coding.py"), "w", encoding="utf-8") as f: f.write(extract_python_code(materials.coding))
+        with open(os.path.join(draft_folder, "checker.py"), "w", encoding="utf-8") as f: f.write(extract_python_code(materials.checker))
+
+        temp_input_dir = os.path.join(draft_folder, "inputs")
+        temp_output_dir = os.path.join(draft_folder, "outputs")
+        os.makedirs(temp_input_dir, exist_ok=True)
+        os.makedirs(temp_output_dir, exist_ok=True)
+
+        try:
+            test_inputs_list = json.loads(materials.test_inputs)
+        except Exception:
+            test_inputs_list = []
+
+        while len(test_inputs_list) < num_test_cases:
+            test_inputs_list.append(test_inputs_list[-1] if test_inputs_list else {})
+
+        print(f"[INFO] Bắt đầu biên dịch chạy thử nghiệm tệp solution.py của Step #{step_id}...")
+        for i in range(1, num_test_cases + 1):
+            inp = test_inputs_list[i - 1]
+            inp_file_path = os.path.join(temp_input_dir, f"input_{i}.json")
+            out_file_path = os.path.join(temp_output_dir, f"output_{i}.json")
+
+            with open(inp_file_path, "w", encoding="utf-8") as f_in:
+                json.dump(inp, f_in)
+
+            temp_input_json = os.path.join(draft_folder, "input.json")
+            temp_output_json = os.path.join(draft_folder, "output.json")
+
+            with open(temp_input_json, "w", encoding="utf-8") as f_temp:
+                json.dump(inp, f_temp)
+
+            # Chạy thử nghiệm file solution để sinh testcase đầu ra (Đánh giá an toàn và lỗi logic)
+            process = subprocess.run(
+                [sys.executable, "solution.py"],
+                cwd=draft_folder,
+                capture_output=True,
+                text=True,
+                timeout=30.0
+            )
+
+            # Kiểm tra mã trả về của file mẫu. Nếu chạy lỗi, dừng tiến trình để tránh sinh testcase rác.
+            if process.returncode == 0 and os.path.exists(temp_output_json):
+                shutil.copy2(temp_output_json, out_file_path)
+            else:
+                err_msg = process.stderr or "No output.json generated"
+                raise Exception(f"Validation error in testcase {i}: {err_msg}")
+
+            if os.path.exists(temp_input_json): os.remove(temp_input_json)
+            if os.path.exists(temp_output_json): os.remove(temp_output_json)
+
+        # Nén thư mục testcase
+        with zipfile.ZipFile(os.path.join(draft_folder, "input.zip"), 'w') as zip_in:
+            for file in sorted(os.listdir(temp_input_dir)):
+                zip_in.write(os.path.join(temp_input_dir, file), arcname=file)
+
+        with zipfile.ZipFile(os.path.join(draft_folder, "output.zip"), 'w') as zip_out:
+            for file in sorted(os.listdir(temp_output_dir)):
+                zip_out.write(os.path.join(temp_output_dir, file), arcname=file)
+
+        cursor.execute("UPDATE roadmap_problems SET status = 'generated', error_message = NULL WHERE id = ?", (step_id,))
+        db.commit()
+        print(f"[SUCCESS] Hoàn tất tiến trình sinh tư liệu thành công cho Step #{step_id}!\n")
+    except Exception as e:
+        print(f"\n[ERROR] Tiến trình sinh tư liệu ngầm cho Step #{step_id} thất bại:")
+        traceback.print_exc() # In chi tiết toàn bộ vết lỗi Python ra Terminal
+        cursor.execute("UPDATE roadmap_problems SET status = 'failed', error_message = ? WHERE id = ?", (str(e), step_id))
+        db.commit()
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "backend.main:app", 
+        host="127.0.0.1", 
+        port=21081, 
+        reload=True,
+        # Chỉ theo dõi các thư mục code thực tế của bạn
+        reload_dirs=["backend", "prompts"] 
+    )

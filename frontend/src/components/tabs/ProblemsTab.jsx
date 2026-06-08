@@ -14,7 +14,6 @@ export default function ProblemsTab({ isLight = false }) {
   const [filterMode, setFilterMode] = useState("all");
   const [editingProblemId, setEditingProblemId] = useState(null);
   const [deletingProblem, setDeletingProblem] = useState(null);
-  const [successMessage, setSuccessMessage] = useState("");
 
   const [formData, setFormData] = useState({
     name: "",
@@ -155,7 +154,7 @@ export default function ProblemsTab({ isLight = false }) {
         body: JSON.stringify({ user_id: currentUserId })
       });
       if (response.ok) {
-        setSuccessMessage("Problem deleted successfully!");
+        alert("Problem deleted successfully!");
         await loadProblems();
       } else {
         const result = await response.json();
@@ -274,7 +273,7 @@ export default function ProblemsTab({ isLight = false }) {
           });
           const result = await response.json();
           if (response.ok) {
-            setSuccessMessage(`Problem successfully approved & published!`);
+            alert(`Problem successfully approved & published!`);
             await loadProblems();
           } else {
             alert(`Error: ${result.detail || "Action failed"}`);
@@ -288,7 +287,7 @@ export default function ProblemsTab({ isLight = false }) {
           });
           const result = await response.json();
           if (response.ok) {
-            setSuccessMessage(`Problem successfully set to private!`);
+            alert(`Problem successfully set to private!`);
             await loadProblems();
           } else {
             alert(`Error: ${result.detail || "Action failed"}`);
@@ -306,7 +305,7 @@ export default function ProblemsTab({ isLight = false }) {
           });
           const result = await response.json();
           if (response.ok) {
-            setSuccessMessage(`Approval request submitted successfully! Trạng thái hiện tại: Private (Pending).`);
+            alert(`Approval request submitted successfully! Trạng thái hiện tại: Private (Pending).`);
             await loadProblems();
           } else {
             alert(`Error: ${result.detail || "Request failed"}`);
@@ -320,7 +319,7 @@ export default function ProblemsTab({ isLight = false }) {
           });
           const result = await response.json();
           if (response.ok) {
-            setSuccessMessage(`Problem retracted back to Private.`);
+            alert(`Problem retracted back to Private.`);
             await loadProblems();
           } else {
             alert(`Error: ${result.detail || "Action failed"}`);
@@ -355,10 +354,10 @@ export default function ProblemsTab({ isLight = false }) {
     shadow: "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)",
   } : {
     pageBg: "transparent",
-    surface: "#0f172a",
-    surfaceRaised: "#111827",
-    border: "rgba(255,255,255,0.07)",
-    borderStrong: "rgba(255,255,255,0.12)",
+    surface: "#131b2e",
+    surfaceRaised: "#182239",
+    border: "rgba(255,255,255,0.12)",
+    borderStrong: "rgba(255,255,255,0.2)",
     accent: "#06b6d4",
     accentDark: "#0891b2",
     accentBg: "rgba(6,182,212,0.08)",
@@ -366,11 +365,11 @@ export default function ProblemsTab({ isLight = false }) {
     tableHead: "#e2e8f0",
     tableHeadBg: "rgba(255,255,255,0.03)",
     textPrimary: "#f1f5f9",
-    textSecondary: "#64748b",
-    textMuted: "#475569",
-    inputBg: "#0c1524",
-    inputBorder: "rgba(255,255,255,0.08)",
-    shadow: "none",
+    textSecondary: "#94a3b8",
+    textMuted: "#64748b",
+    inputBg: "#0d1322",
+    inputBorder: "rgba(255,255,255,0.15)",
+    shadow: "0 4px 20px rgba(0,0,0,0.4)",
   };
 
   const inputStyle = {
@@ -1206,45 +1205,6 @@ export default function ProblemsTab({ isLight = false }) {
       )}
 
       {/* SUCCESS DIALOG PORTAL */}
-      {successMessage && createPortal(
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 1400, display: "flex",
-          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
-          padding: 16
-        }}>
-          <div style={{
-            width: "100%", maxWidth: 400, background: t.surface,
-            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
-            borderRadius: 12, padding: 20, boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
-            fontFamily: "'Inter var', 'Inter', sans-serif", color: t.textPrimary,
-            position: "relative"
-          }}>
-            <div style={{
-              position: "absolute", top: 0, left: 0, right: 0, height: 3,
-              background: "#10b981"
-            }} />
-            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: "#10b981" }}>
-              Success
-            </h4>
-            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
-              {successMessage}
-            </p>
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                onClick={() => setSuccessMessage("")}
-                style={{
-                  background: "#10b981", border: "none", color: "#fff",
-                  borderRadius: 6, padding: "6px 16px", fontSize: 11, fontWeight: 700, cursor: "pointer"
-                }}
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }

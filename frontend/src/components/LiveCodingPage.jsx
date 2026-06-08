@@ -41,23 +41,23 @@ export default function LiveCodingPage() {
   const isPreview = !!stepId; // Xác định chế độ xem trước bản nháp
   const baseProblem = location.state?.problem;
 
-  // Sync theme mode (light/dark) directly from home page
+  // Sync theme mode (light/dark) trực tiếp từ LocalStorage
   const [theme] = useState(() => localStorage.getItem("home_theme") || "dark");
   const isLight = theme === "light";
 
-  // Sync color scheme structure of Home page
+  // Đồng bộ cấu trúc mã màu từ trang chủ
   const t = {
-    pageBg: isLight ? "#eaf2f0" : "#080C14",
-    surface: isLight ? "#ffffff" : "#0D1117",
-    surfaceAlt: isLight ? "#f0faf6" : "#111827",
-    border: isLight ? "rgba(15,23,42,0.10)" : "rgba(255,255,255,0.06)",
+    pageBg: isLight ? "#eaf2f0" : "#090d16",
+    surface: isLight ? "#ffffff" : "#131b2e",
+    surfaceAlt: isLight ? "#f0faf6" : "#182239",
+    border: isLight ? "rgba(15,23,42,0.10)" : "rgba(255,255,255,0.12)",
     accent: isLight ? "#059669" : "#10B981",
-    accentDim: isLight ? "rgba(5,150,105,0.12)" : "rgba(16,185,129,0.10)",
-    accentBorder: isLight ? "rgba(5,150,105,0.30)" : "rgba(16,185,129,0.28)",
-    textPrimary: isLight ? "#0f172a" : "#F1F5F9",
-    textSecondary: isLight ? "#475569" : "#64748B",
-    textMuted: isLight ? "#94a3b8" : "#334155",
-    shadow: isLight ? "0 1px 10px rgba(15,23,42,0.08)" : "0 1px 10px rgba(0,0,0,0.35)",
+    accentDim: isLight ? "rgba(5,150,105,0.12)" : "rgba(16,185,129,0.12)",
+    accentBorder: isLight ? "rgba(5,150,105,0.30)" : "rgba(16,185,129,0.35)",
+    textPrimary: isLight ? "#0f172a" : "#F8FAFC",
+    textSecondary: isLight ? "#475569" : "#94A3B8",
+    textMuted: isLight ? "#94a3b8" : "#64748B",
+    shadow: isLight ? "0 1px 10px rgba(15,23,42,0.08)" : "0 4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)",
   };
 
   const [activeContentTab, setActiveContentTab] = useState("statement");
@@ -82,7 +82,7 @@ export default function LiveCodingPage() {
   const [isSubmissionsLoading, setIsSubmissionsLoading] = useState(false);
   const [expandedSubId, setExpandedSubId] = useState(null);
 
-  // States managing raw/draft editing of the sample solution (Solution Tab)
+  // Lưu vết trạng thái chỉnh sửa Lời giải mẫu
   const [isEditingSolution, setIsEditingSolution] = useState(false);
   const [solutionDraft, setSolutionDraft] = useState("");
 
@@ -107,8 +107,6 @@ export default function LiveCodingPage() {
   const [outputZipFile, setOutputZipFile] = useState(null);
   const [testcases, setTestcases] = useState([]);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const [successMessage, setSuccessMessage] = useState("");
-  const [onSuccessOk, setOnSuccessOk] = useState(null);
 
   const closeEditModal = () => {
     setIsEditModalOpen(false);
@@ -140,7 +138,7 @@ export default function LiveCodingPage() {
     setError("");
     try {
       if (isPreview) {
-        // Tải từ API xem trước bản nháp
+        // Tải từ API xem trước bản nháp lộ trình
         const result = await fetchStepDraftPreview(stepId);
         const data = result?.data;
         if (data) {
@@ -240,7 +238,7 @@ export default function LiveCodingPage() {
         formPayload.append("output_zip", outputZipFile);
       }
 
-      // Attach test cases when zip files are not uploaded
+      // Đính kèm danh sách testcase khi không truyền file ZIP
       if (!inputZipFile && !outputZipFile) {
         for (let i = 0; i < testcases.length; i++) {
           const tc = testcases[i];
@@ -288,8 +286,8 @@ export default function LiveCodingPage() {
         body: JSON.stringify({ user_id: currentUserId })
       });
       if (response.ok) {
-        setSuccessMessage("Problem deleted successfully!");
-        setOnSuccessOk(() => () => navigate("/", { state: { activeTab: "PROBLEMS" } }));
+        alert("Problem deleted successfully!");
+        navigate("/", { state: { activeTab: "PROBLEMS" } });
       } else {
         const result = await response.json();
         alert(`Error: ${result.detail || "Delete failed"}`);
@@ -307,7 +305,7 @@ export default function LiveCodingPage() {
   };
 
   const loadSubmissionsList = async () => {
-    if (isPreview) return; // Không tải lịch sử nộp trong chế độ xem thử nháp
+    if (isPreview) return; // Không hiển thị lịch sử bài nộp ở chế độ Preview
     setIsSubmissionsLoading(true);
     try {
       const resp = await fetchProblemSubmissions(problemId, currentUserId);
@@ -347,7 +345,7 @@ export default function LiveCodingPage() {
   };
 
   const handleRunCode = () => {
-    if (isPreview) return; // Bảo vệ: Không chạy code ở chế độ xem thử
+    if (isPreview) return; // Bảo vệ: Không chạy thử code ở chế độ Preview
     (async () => {
       setIsConsoleRunning(true);
       setConsoleOutput("Running first test case...\n");
@@ -369,7 +367,7 @@ export default function LiveCodingPage() {
   };
 
   const handleSubmitCode = () => {
-    if (isPreview) return; // Bảo vệ: Không nộp code ở chế độ xem thử
+    if (isPreview) return; // Bảo vệ: Không nộp code ở chế độ Preview
     if (!code || !code.trim()) {
       alert("Submission failed: Compiled source code cannot be empty.");
       return;
@@ -517,7 +515,7 @@ export default function LiveCodingPage() {
     textTransform: "uppercase", marginBottom: 6,
   };
 
-  // Chỉ hiển thị các tab nội dung phù hợp cho chế độ Preview
+  // Lọc bỏ tab Submissions và Discussion khi ở chế độ xem thử bản nháp
   const filteredTabs = isPreview
     ? CONTENT_TABS.filter((tab) => tab.key !== "submissions" && tab.key !== "discussion")
     : CONTENT_TABS;
@@ -1183,7 +1181,7 @@ export default function LiveCodingPage() {
               </div>
             </div>
 
-            {/* Monaco Editor Frame (Configured with extra top/bottom padding) */}
+            {/* Monaco Editor Frame */}
             <div className="flex-1 h-full w-full py-4">
               <Editor
                 height="100%"
@@ -1265,7 +1263,7 @@ export default function LiveCodingPage() {
               background: "linear-gradient(90deg, #10b981, #06b6d4, #818cf8)",
             }} />
 
-            <div style={{ display: "flex", alignItems: "center", justify_content: "space-between", marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
               <h3 style={{
                 margin: 0, fontSize: 14, fontWeight: 700,
                 color: isLight ? "#059669" : "#22d3ee",
@@ -1420,7 +1418,7 @@ export default function LiveCodingPage() {
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 12, borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
-                <div style={{ display: "flex", justify_content: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <label style={{ ...labelStyle, marginBottom: 0 }}>Test Cases Manager ({testcases.length})</label>
                   <button
                     type="button"
@@ -1451,7 +1449,7 @@ export default function LiveCodingPage() {
                         position: "relative"
                       }}
                     >
-                      <div style={{ display: "flex", justify_content: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: t.accent }}>Test Case #{idx + 1}</span>
                         <button
                           type="button"
@@ -1512,7 +1510,7 @@ export default function LiveCodingPage() {
                 </div>
               </div>
 
-              <div style={{ display: "flex", justify_content: "flex-end", gap: 10, paddingTop: 10 }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 10 }}>
                 <button
                   type="button"
                   onClick={closeEditModal}
@@ -1546,11 +1544,11 @@ export default function LiveCodingPage() {
         document.body
       )}
 
-      {/* DELETE CONFIRMATION PORTAL */}
+      {/* DELETE CONFIRMATION DIALOG */}
       {isDeleteConfirmOpen && createPortal(
         <div style={{
           position: "fixed", inset: 0, zIndex: 1300, display: "flex",
-          alignItems: "center", justify_content: "center", background: "rgba(0,0,0,0.65)",
+          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
           padding: 16
         }}>
           <div style={{
@@ -1571,7 +1569,7 @@ export default function LiveCodingPage() {
             <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
               Are you sure you want to delete the problem <strong>{problem?.name}</strong> permanently? This action cannot be undone.
             </p>
-            <div style={{ display: "flex", justify_content: "flex-end", gap: 10 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
               <button
                 type="button"
                 onClick={() => setIsDeleteConfirmOpen(false)}
@@ -1599,52 +1597,6 @@ export default function LiveCodingPage() {
         document.body
       )}
 
-      {successMessage && createPortal(
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 1400, display: "flex",
-          alignItems: "center", justify_content: "center", background: "rgba(0,0,0,0.65)",
-          padding: 16
-        }}>
-          <div style={{
-            width: "100%", maxWidth: 400, background: t.surface,
-            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
-            borderRadius: 12, padding: 20, boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
-            fontFamily: "'Sora', sans-serif", color: t.textPrimary,
-            position: "relative"
-          }}>
-            {/* green top stripe */}
-            <div style={{
-              position: "absolute", top: 0, left: 0, right: 0, height: 3,
-              background: "#10b981"
-            }} />
-            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: "#10b981" }}>
-              Success
-            </h4>
-            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
-              {successMessage}
-            </p>
-            <div style={{ display: "flex", justify_content: "flex-end" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setSuccessMessage("");
-                  if (onSuccessOk) {
-                    onSuccessOk();
-                    setOnSuccessOk(null);
-                  }
-                }}
-                style={{
-                  background: "#10b981", border: "none", color: "#fff",
-                  borderRadius: 6, padding: "6px 16px", fontSize: 11, fontWeight: 700, cursor: "pointer"
-                }}
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }

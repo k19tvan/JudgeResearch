@@ -6,10 +6,13 @@ import Register from "./components/Register";
 import Home from "./components/Home";
 import LiveCodingPage from "./components/LiveCodingPage";
 import ResearchRoadmapPage from "./components/ResearchRoadmapPage";
+import ToastContainer from "./components/ToastContainer";
+import "./toastService"; // Registers window.alert override
 
 function App() {
   return (
     <Router>
+      <ToastContainer />
       <Routes>
         {/* Trang chủ */}
         <Route path="/" element={<Home />} />

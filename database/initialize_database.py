@@ -1,5 +1,6 @@
 import sqlite3
 import os
+from backend.auth import hash_password
 
 db_dir = "database"
 db_name = "database.db"
@@ -14,6 +15,52 @@ def get_db_connection():
     con.execute("PRAGMA foreign_keys = ON;")  # Kích hoạt ràng buộc khóa ngoại trong SQLite
     return con
 
+# ================= HÀM DI TRÚ (MIGRATION) CHO DATABASE ĐÃ TỒN TẠI =================
+def ensure_schema_migrations():
+    """
+    Tự động kiểm tra và thêm các cột mới vào các bảng nếu chạy trên database cũ 
+    để đảm bảo tính tương thích và giữ nguyên dữ liệu hiện có.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. Kiểm tra và bổ sung cột cho bảng draft_problem_sessions
+        cursor.execute("PRAGMA table_info(draft_problem_sessions)")
+        draft_columns = {row[1] for row in cursor.fetchall()}
+        if draft_columns:
+            if "research_title" not in draft_columns:
+                cursor.execute("ALTER TABLE draft_problem_sessions ADD COLUMN research_title TEXT")
+            if "error_message" not in draft_columns:
+                cursor.execute("ALTER TABLE draft_problem_sessions ADD COLUMN error_message TEXT")
+
+        # 2. Kiểm tra và bổ sung cột cho bảng roadmap_problems
+        cursor.execute("PRAGMA table_info(roadmap_problems)")
+        rp_columns = {row[1] for row in cursor.fetchall()}
+        if rp_columns:
+            if "error_message" not in rp_columns:
+                cursor.execute("ALTER TABLE roadmap_problems ADD COLUMN error_message TEXT")
+
+        # 3. Kiểm tra và bổ sung cột cho bảng tickets
+        cursor.execute("PRAGMA table_info(tickets)")
+        ticket_columns = {row[1] for row in cursor.fetchall()}
+        if ticket_columns and "image_url" not in ticket_columns:
+            cursor.execute("ALTER TABLE tickets ADD COLUMN image_url TEXT")
+
+        # 4. Kiểm tra và bổ sung cột cho bảng ticket_replies
+        cursor.execute("PRAGMA table_info(ticket_replies)")
+        reply_columns = {row[1] for row in cursor.fetchall()}
+        if reply_columns and "image_url" not in reply_columns:
+            cursor.execute("ALTER TABLE ticket_replies ADD COLUMN image_url TEXT")
+            
+        conn.commit()
+        print("Đã hoàn tất việc kiểm tra và đồng bộ cấu trúc database cũ (nếu có).")
+    except Exception as e:
+        print(f"Lỗi khi thực hiện di trú cấu trúc bảng: {str(e)}")
+    finally:
+        conn.close()
+
+
+# ================= HÀM KHỞI TẠO TOÀN BỘ DATABASE MỚI =================
 def init_db():
     con = get_db_connection()
     cursor = con.cursor()
@@ -91,7 +138,7 @@ def init_db():
     );
     """)
     
-    # =============== 5. Bảng Draft Problem Sessions ===============
+    # =============== 5. Bảng Draft Problem Sessions (Đã cập nhật tích hợp error_message) ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS draft_problem_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,9 +146,10 @@ def init_db():
         repository_url TEXT NOT NULL,
         user_id INTEGER NOT NULL,
         problems_json TEXT NOT NULL,
-        research_title TEXT,                      -- Tích hợp trực tiếp cột tiêu đề nghiên cứu
-        num_test_cases INTEGER DEFAULT 3,         -- Tích hợp trực tiếp số lượng testcases
-        status TEXT NOT NULL DEFAULT 'draft',     -- 'draft' hoặc 'finalized'
+        research_title TEXT,                      -- Tiêu đề nghiên cứu
+        num_test_cases INTEGER DEFAULT 3,         -- Số lượng testcases cấu hình
+        status TEXT NOT NULL DEFAULT 'draft',     -- 'processing', 'draft', 'failed', hoặc 'finalized'
+        error_message TEXT,                       -- Vết lỗi chi tiết nếu AI sinh thất bại
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -118,7 +166,7 @@ def init_db():
         level TEXT NOT NULL,                      -- easy, medium, hard
         user_note TEXT,
         framework TEXT,                           -- pytorch, tensorflow, v.v.
-        num_test_cases INTEGER DEFAULT 3,         -- Tích hợp trực tiếp số lượng cấu hình testcases
+        num_test_cases INTEGER DEFAULT 3,         -- Số lượng cấu hình testcases
         status TEXT NOT NULL DEFAULT 'draft',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -126,17 +174,18 @@ def init_db():
     );
     """)
 
-    # =============== 7. Bảng Roadmap Problems ===============
+    # =============== 7. Bảng Roadmap Problems (Đã cập nhật tích hợp error_message) ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS roadmap_problems (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         roadmap_id INTEGER NOT NULL,
-        problem_id INTEGER,                       -- Cho phép NULL khi bước này chưa được bấm 'Save to Problem'
+        problem_id INTEGER,                       -- Cho phép NULL khi bước này chưa được lưu chính thức
         name TEXT NOT NULL,
-        description TEXT,                         -- Lưu trữ mô tả nháp do AI sinh ra
+        description TEXT,                         -- Mô tả nháp do AI sinh ra
         target_module TEXT,                       -- Đường dẫn module đích trong repository
         order_index INTEGER NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',   -- Trạng thái: 'pending' (chưa tạo), 'generated' (đã sinh nháp), 'saved' (đã lưu chính thức)
+        status TEXT NOT NULL DEFAULT 'pending',   -- Trạng thái: 'pending', 'generating', 'generated', 'saved', 'failed'
+        error_message TEXT,                       -- Lưu log lỗi biên dịch/runtime của tệp solution sinh nháp
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (roadmap_id) REFERENCES roadmaps(id) ON DELETE CASCADE,
@@ -210,7 +259,7 @@ def init_db():
     );
     """)
 
-    # =============== 12. Bảng Tickets (Yêu cầu hỗ trợ) ===============
+    # =============== 12. Bảng Tickets (Đã cập nhật tích hợp image_url) ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -218,19 +267,21 @@ def init_db():
         title TEXT NOT NULL,
         description TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'open', -- 'open' hoặc 'resolved'
+        image_url TEXT,                      -- Danh sách đường dẫn ảnh đính kèm (Lưu dạng chuỗi JSON)
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
 
-    # =============== 13. Bảng Ticket Replies ===============
+    # =============== 13. Bảng Ticket Replies (Đã cập nhật tích hợp image_url) ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS ticket_replies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ticket_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
         message TEXT NOT NULL,
+        image_url TEXT,                      -- Ảnh đính kèm trong phản hồi (Lưu dạng chuỗi JSON)
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -254,15 +305,14 @@ def init_db():
     
     con.commit()
 
-    # Thêm dữ liệu mẫu hữu ích
+    # Thêm dữ liệu quản trị viên và tài khoản mẫu hữu ích
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
         cursor.execute("""
             INSERT INTO users (username, password_hash, display_name, email, role, status)
-            VALUES 
-            ('admin', '$2b$12$4m2t/WfAptz.hFwZ6M7k3Oa.K41Dq1T3CqFOnT4K.t3H8Vb1v2x1a', 'System Admin', 'admin@judgeresearch.com', 'admin', 'active'),
-            ('contributor1', '$2b$12$4m2t/WfAptz.hFwZ6M7k3Oa.K41Dq1T3CqFOnT4K.t3H8Vb1v2x1a', 'Alex Nguyen', 'alex@judgeresearch.com', 'contributor', 'active')
-        """)
+            VALUES
+            ('admin', ?, 'System Admin', 'admin@judgeresearch.com', 'admin', 'active')
+        """, (hash_password("Admin123"),))
         con.commit()
 
         cursor.execute("SELECT id FROM users WHERE username='admin'")
@@ -280,11 +330,12 @@ def init_db():
     print("Khởi tạo toàn bộ các bảng cơ sở dữ liệu thành công.")
 
 if __name__ == "__main__":
+    # Chỉ thực hiện khởi tạo trắng toàn bộ nếu chạy tệp tin này một cách độc lập từ terminal
     if os.path.exists(db_path):
         try:
             os.remove(db_path)
             print(f"Đã xóa file cơ sở dữ liệu cũ tại: {db_path}")
         except Exception as e:
-            print(f"Không thể xóa file cũ tự động: {str(e)}. Hãy chắc chắn tiến trình khác đã đóng kết nối.")
+            print(f"Không thể xóa file cũ: {str(e)}. Hãy chắc chắn các tiến trình khác đã đóng kết nối.")
             
     init_db()

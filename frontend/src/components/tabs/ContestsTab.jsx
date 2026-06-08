@@ -10,9 +10,9 @@ export default function ContestsTab({ isLight = false }) {
   } : {
     accent:       "#06b6d4",
     textPrimary:  "#f1f5f9",
-    textSecondary:"#64748b",
-    surface:      "#0f172a",
-    border:       "rgba(255,255,255,0.07)",
+    textSecondary:"#94a3b8",
+    surface:      "#131b2e",
+    border:       "rgba(255,255,255,0.12)",
   };
 
   return (
