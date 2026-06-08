@@ -186,3 +186,34 @@ You are a Senior Technical Editor, Python QA Engineer, and strict JSON Validatio
 {raw_ai_response}
 
 """
+
+generate_test_inputs_prompt = r"""
+You are a Senior Deep Learning QA Engineer. Your task is to analyze the following Problem Statement and its Reference Solution code, then generate exactly {num_test_cases} high-quality, technically sound test inputs.
+
+### Your Objectives:
+1. **Analyze Input Requirements**:
+   - Inspect the `if __name__ == "__main__":` block of the Reference Solution to see exactly which keys are read from "input.json" (e.g., `input_data.get("pred_boxes")`).
+   - The keys in your generated testcases MUST match these expected keys exactly.
+
+2. **Ensure Constraints & Shapes**:
+   - Adhere strictly to the mathematical and dimension constraints specified in the Problem Statement (e.g., matrix dimensions, bounds, value ranges).
+   - Ensure the data types (e.g., list of floats, integers, shapes) are correct for PyTorch processing.
+
+3. **Incorporate Edge Cases & Variety**:
+   - Do not generate identical inputs.
+   - Include standard cases, edge cases (e.g., boundary values like minimum/maximum values, identity matrices, or empty lists if permitted by constraints), and random valid distributions to ensure robust test coverage.
+
+4. **Response Format Constraint**:
+   - Output ONLY a valid, clean, raw JSON array of exactly {num_test_cases} objects.
+   - Do not wrap the output in markdown code blocks (such as ```json ... ```).
+   - Do not include conversational text or explanation before or after the JSON.
+
+---
+### PROBLEM STATEMENT:
+{statement}
+
+---
+### REFERENCE SOLUTION:
+{solution}
+
+"""

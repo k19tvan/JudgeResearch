@@ -688,9 +688,9 @@ export default function ProblemsTab({ isLight = false }) {
 
                 const cleanSlug = problem.name
                   .toLowerCase()
-                  .replace(/[^\w\s-]/g, '')
-                  .replace(/[-\s]+/g, '_')
-                  .substring(0, 16);
+                  .replace(/[^\w\s-]/g, '')       // Loại bỏ ký tự đặc biệt
+                  .replace(/[-\s]+/g, '_')         // Đổi khoảng trắng và gạch ngang thành gạch dưới
+                  .replace(/^_+|_+$/g, '');        // Tương đương hàm .strip('_') để cắt gạch dưới dư thừa ở đầu/cuối
                 const displayId = `ml_${cleanSlug}_${problem.id}`;
 
                 return (

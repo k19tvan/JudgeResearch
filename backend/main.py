@@ -29,7 +29,7 @@ import re
 import os
 import requests  
 import json
-from prompts.prompt import get_problems_from_repo_prompt, feedback_prompt, create_detailedly_prompt, validate_problem_from_repo_prompt, validate_create_detailedly_response_prompt
+from prompts.prompt import get_problems_from_repo_prompt, feedback_prompt, create_detailedly_prompt, validate_problem_from_repo_prompt, validate_create_detailedly_response_prompt, generate_test_inputs_prompt
 from dotenv import load_dotenv
 from json_repair import repair_json
 import tempfile
@@ -423,7 +423,30 @@ def fix_create_detailed_response(raw_ai_response: str) -> str:
 
     return ai_response_fixed
 
-
+def generate_test_inputs_with_gemini(statement: str, solution: str, num_test_cases: int) -> str:
+    """
+    Sử dụng Gemini để phân tích đề bài và lời giải mẫu,
+    từ đó thiết kế bộ testcase đầu vào có độ phủ tốt nhất.
+    """
+    prompt = generate_test_inputs_prompt.format(
+        statement=statement,
+        solution=solution,
+        num_test_cases=num_test_cases
+    )
+    
+    # Sử dụng gemini-3.1-flash-lite theo cấu hình tương tự
+    response = client.models.generate_content(
+        model="gemini-3.1-flash-lite",
+        config={
+            "system_instruction": (
+                "You are a strict JSON Generator and Senior QA Engineer. "
+                "Your job is to read a problem specification and output a raw JSON array of testcase inputs. "
+                "Never output conversational text or markdown blocks."
+            )
+        },
+        contents=f"text:{prompt}"
+    )
+    return response.text
 
 
 
@@ -3917,6 +3940,7 @@ def background_step_material_generator(step_id: int, num_test_cases: int, name: 
     draft_folder = f"storage/draft_problems/{step_id}"
     print(f"\n[INFO] Khởi động tiến trình sinh tư liệu ngầm cho Step #{step_id}: '{name}'...")
     try:
+        # Bước 1: Gửi yêu cầu thiết kế chi tiết tới DeepWiki
         question_prompt = create_detailedly_prompt.format(
             title=name,
             repository_url=repo_url,
@@ -3935,7 +3959,7 @@ def background_step_material_generator(step_id: int, num_test_cases: int, name: 
 
         os.makedirs(draft_folder, exist_ok=True)
         
-        # Lưu trữ các file markdown và code mẫu
+        # Lưu trữ các file markdown và code mẫu ban đầu
         with open(os.path.join(draft_folder, "statement.md"), "w", encoding="utf-8") as f: f.write(materials.statement)
         with open(os.path.join(draft_folder, "theory.md"), "w", encoding="utf-8") as f: f.write(materials.theory)
         with open(os.path.join(draft_folder, "tutorial.md"), "w", encoding="utf-8") as f: f.write(materials.tutorial)
@@ -3950,13 +3974,35 @@ def background_step_material_generator(step_id: int, num_test_cases: int, name: 
         os.makedirs(temp_input_dir, exist_ok=True)
         os.makedirs(temp_output_dir, exist_ok=True)
 
+        # ================= CẢI TIẾN: SINH TEST INPUTS BẰNG GEMINI =================
+        print(f"[INFO] Đang gọi Gemini phân tích Statement và Solution để thiết kế {num_test_cases} test cases chất lượng cao...")
+        test_inputs_list = []
         try:
-            test_inputs_list = json.loads(materials.test_inputs)
-        except Exception:
-            test_inputs_list = []
+            gemini_test_inputs_raw = generate_test_inputs_with_gemini(
+                statement=materials.statement,
+                solution=sol_code,
+                num_test_cases=num_test_cases
+            )
+            with open("gemini_test_inputs_raw.txt", "w", encoding="utf-8") as f:
+                f.write(gemini_test_inputs_raw)
+                
+            cleaned_inputs_json = clean_json_response(gemini_test_inputs_raw)
+            test_inputs_list = json.loads(cleaned_inputs_json)
+            if not isinstance(test_inputs_list, list):
+                raise ValueError("Output from Gemini is not a valid list.")
+            print(f"[SUCCESS] Đã sinh thành công {len(test_inputs_list)} test cases từ Gemini.")
+        except Exception as gemini_err:
+            print(f"[WARN] Không thể sinh test inputs qua Gemini riêng biệt: {str(gemini_err)}")
+            print(f"[INFO] Đang chuyển hướng sử dụng fallback 'test_inputs' mặc định từ phản hồi ban đầu...")
+            try:
+                test_inputs_list = json.loads(materials.test_inputs) if materials.test_inputs else []
+            except Exception:
+                test_inputs_list = []
 
+        # Đảm bảo đủ số lượng testcase yêu cầu
         while len(test_inputs_list) < num_test_cases:
             test_inputs_list.append(test_inputs_list[-1] if test_inputs_list else {})
+        # =========================================================================
 
         print(f"[INFO] Bắt đầu biên dịch chạy thử nghiệm tệp solution.py của Step #{step_id}...")
         for i in range(1, num_test_cases + 1):
@@ -3973,7 +4019,7 @@ def background_step_material_generator(step_id: int, num_test_cases: int, name: 
             with open(temp_input_json, "w", encoding="utf-8") as f_temp:
                 json.dump(inp, f_temp)
 
-            # Chạy thử nghiệm file solution để sinh testcase đầu ra (Đánh giá an toàn và lỗi logic)
+            # Chạy thử nghiệm file solution để sinh testcase đầu ra
             process = subprocess.run(
                 [sys.executable, "solution.py"],
                 cwd=draft_folder,
@@ -4001,12 +4047,13 @@ def background_step_material_generator(step_id: int, num_test_cases: int, name: 
             for file in sorted(os.listdir(temp_output_dir)):
                 zip_out.write(os.path.join(temp_output_dir, file), arcname=file)
 
+        # Cập nhật cơ sở dữ liệu khi thành công
         cursor.execute("UPDATE roadmap_problems SET status = 'generated', error_message = NULL WHERE id = ?", (step_id,))
         db.commit()
         print(f"[SUCCESS] Hoàn tất tiến trình sinh tư liệu thành công cho Step #{step_id}!\n")
     except Exception as e:
         print(f"\n[ERROR] Tiến trình sinh tư liệu ngầm cho Step #{step_id} thất bại:")
-        traceback.print_exc() # In chi tiết toàn bộ vết lỗi Python ra Terminal
+        traceback.print_exc()
         cursor.execute("UPDATE roadmap_problems SET status = 'failed', error_message = ? WHERE id = ?", (str(e), step_id))
         db.commit()
     finally:

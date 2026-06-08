@@ -37,15 +37,31 @@ function IntroTab({ isLight, onNavigate, username, userRole }) {
       try {
         const token = localStorage.getItem("access_token");
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const [probRes, subRes, userRes] = await Promise.allSettled([
-          fetch("http://localhost:21081/api/problems/filter?filter_mode=all", { headers }),
-          fetch("http://localhost:21081/api/submissions", { headers }),
-          fetch("http://localhost:21081/api/admin/users", { headers }),
-        ]);
+        
+        // 1. Lấy user_id từ localStorage
+        const currentUserId = localStorage.getItem("user_id");
 
-        const prob = probRes.status === "fulfilled" && probRes.value.ok ? await probRes.value.json() : null;
-        const subs = subRes.status === "fulfilled" && subRes.value.ok ? await subRes.value.json() : null;
-        const usrs = userRes.status === "fulfilled" && userRes.value.ok ? await userRes.value.json() : null;
+        // 2. Thiết lập URL động: 
+        // Nếu có user_id -> dùng mode "all" kèm user_id. 
+        // Nếu chưa có -> chuyển về mode "public" (không yêu cầu user_id trên Backend) để tránh lỗi 400.
+        const problemsUrl = currentUserId
+          ? `http://localhost:21081/api/problems/filter?filter_mode=all&user_id=${currentUserId}`
+          : "http://localhost:21081/api/problems/filter?filter_mode=public";
+
+        const apiCalls = [
+          fetch(problemsUrl, { headers }),
+          fetch("http://localhost:21081/api/submissions", { headers })
+        ];
+
+        if (userRole === "admin") {
+          apiCalls.push(fetch("http://localhost:21081/api/admin/users", { headers }));
+        }
+
+        const results = await Promise.allSettled(apiCalls);
+
+        const prob = results[0].status === "fulfilled" && results[0].value.ok ? await results[0].value.json() : null;
+        const subs = results[1].status === "fulfilled" && results[1].value.ok ? await results[1].value.json() : null;
+        const usrs = userRole === "admin" && results[2]?.status === "fulfilled" && results[2].value.ok ? await results[2].value.json() : null;
 
         const probCount = prob?.data ? prob.data.length : (Array.isArray(prob) ? prob.length : 0);
         const subsCount = subs?.data ? subs.data.length : (Array.isArray(subs) ? subs.length : 0);
@@ -61,9 +77,9 @@ function IntroTab({ isLight, onNavigate, username, userRole }) {
       finally { setLoadingStats(false); }
     }
     loadStats();
-  }, []);
+  }, [userRole]);
 
-  const hour = new Date().getHours();
+const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   // Lọc chỉ giữ lại 4 đề mục nhanh khả dụng (đã bỏ Wiki và Contests)

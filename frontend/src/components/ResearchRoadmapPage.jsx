@@ -161,8 +161,7 @@ export default function ResearchRoadmapPage({ mode }) {
     setError("");
     try {
       const token = localStorage.getItem("access_token");
-      const response = await fetch("http://localhost:21081/api/problems/draft_sessions/${sessionId}", {
-        method: "PUT",
+      const response = await fetch(`http://localhost:21081/api/problems/draft_sessions/${sessionId}`, {        method: "PUT",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
