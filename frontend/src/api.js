@@ -2,11 +2,47 @@
 import axios from "axios";
 axios.defaults.withCredentials = true;
 
-const AUTH_API_URL = "http://localhost:21081/api/auth";
-const PROBLEM_API_URL = "http://localhost:21081/api/problems";
-const ROADMAP_API_URL = "http://localhost:21081/api/roadmaps";
-const ROADMAP_STEP_API_URL = "http://localhost:21081/api/roadmap-steps"; 
-const USER_API_URL = "http://localhost:21081/api/users";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:21081";
+const LEGACY_API_BASE_URL = "http://localhost:21081";
+const AUTH_API_URL = `${API_BASE_URL}/api/auth`;
+const PROBLEM_API_URL = `${API_BASE_URL}/api/problems`;
+const ROADMAP_API_URL = `${API_BASE_URL}/api/roadmaps`;
+const ROADMAP_STEP_API_URL = `${API_BASE_URL}/api/roadmap-steps`; 
+const USER_API_URL = `${API_BASE_URL}/api/users`;
+
+export function getAuthHeaders(extra = {}) {
+  const accessToken = localStorage.getItem("access_token");
+  return {
+    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    ...extra,
+  };
+}
+
+if (typeof window !== "undefined" && !window.__judgeResearchFetchPatched) {
+  const nativeFetch = window.fetch.bind(window);
+  window.__judgeResearchFetchPatched = true;
+  window.fetch = (input, init = {}) => {
+    let nextInput = input;
+    const requestUrl = typeof input === "string" ? input : input?.url;
+    const isApiRequest = requestUrl?.startsWith(API_BASE_URL) || requestUrl?.startsWith(LEGACY_API_BASE_URL);
+
+    if (typeof input === "string" && input.startsWith(LEGACY_API_BASE_URL) && API_BASE_URL !== LEGACY_API_BASE_URL) {
+      nextInput = `${API_BASE_URL}${input.slice(LEGACY_API_BASE_URL.length)}`;
+    }
+
+    if (isApiRequest) {
+      init = {
+        ...init,
+        credentials: init.credentials || "include",
+        headers: {
+          ...getAuthHeaders(),
+          ...(init.headers || {}),
+        },
+      };
+    }
+    return nativeFetch(nextInput, init);
+  };
+}
 
 // ================ CORE SECURE FETCH FUNCTION (WITH SILENT REFRESH) ================
 
@@ -27,7 +63,7 @@ export async function customFetch(url, options = {}) {
   if (response.status === 401) {
     try {
       // Gọi API refresh (Không cần truyền body vì cookie tự động được đính kèm chéo cổng)
-      const refreshResponse = await fetch("http://localhost:21081/api/auth/refresh", {
+      const refreshResponse = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
         method: "POST",
         credentials: "include",
       });
@@ -115,8 +151,8 @@ export const fetchProblems = async (userId = null) => {
 
 export const fetchProblemContent = async (problemId, userId) => {
   const url = userId 
-    ? `http://localhost:21081/api/problems/${problemId}/content?user_id=${userId}`
-    : `http://localhost:21081/api/problems/${problemId}/content`;
+    ? `${API_BASE_URL}/api/problems/${problemId}/content?user_id=${userId}`
+    : `${API_BASE_URL}/api/problems/${problemId}/content`;
   const response = await customFetch(url);
   return response.json();
 };
@@ -383,7 +419,7 @@ export const updateManagedUser = async (userId, accountData) => {
 // ================ GENERAL SUBMISSIONS ENDPOINTS ================
 
 export const createSubmission = async (submissionData) => {
-  const response = await customFetch(`http://localhost:21081/api/submissions`, {
+  const response = await customFetch(`${API_BASE_URL}/api/submissions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(submissionData),
@@ -398,7 +434,7 @@ export const createSubmission = async (submissionData) => {
 };
 
 export const fetchSubmission = async (submissionId) => {
-  const response = await customFetch(`http://localhost:21081/api/submissions/${submissionId}`);
+  const response = await customFetch(`${API_BASE_URL}/api/submissions/${submissionId}`);
 
   if (!response.ok) {
     const errorData = await response.json();

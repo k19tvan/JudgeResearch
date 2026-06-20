@@ -141,10 +141,7 @@ ADMIN_SECRET_KEY=your-secret-key
 ## Start Backend API
 
 ```bash
-python -m uvicorn backend.main:app \
-    --host 0.0.0.0 \
-    --port 21081 \
-    --reload
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 21081 --reload
 ```
 
 Backend endpoint:

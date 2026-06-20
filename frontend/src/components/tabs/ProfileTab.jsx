@@ -1,7 +1,7 @@
 // src/components/tabs/ProfileTab.jsx
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { deactivateUserAccount, fetchUserProfile, updateUserProfile } from "../../api";
+import { API_BASE_URL, deactivateUserAccount, fetchUserProfile, updateUserProfile } from "../../api";
 
 const emptyForm = {
   username: "",
@@ -54,25 +54,25 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
     shadow:       "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)",
   } : {
     pageBg:       "transparent",
-    surface:      "#0f172a",
-    surfaceRaised:"#111827",
-    border:       "rgba(255,255,255,0.07)",
-    borderStrong: "rgba(255,255,255,0.12)",
+    surface:      "#131b2e",
+    surfaceRaised:"#182239",
+    border:       "rgba(255,255,255,0.12)",
+    borderStrong: "rgba(255,255,255,0.2)",
     accent:       "#06b6d4",
     accentDark:   "#0891b2",
     accentBg:     "rgba(6,182,212,0.08)",
     accentBorder: "rgba(6,182,212,0.3)",
     textPrimary:  "#f1f5f9",
-    textSecondary:"#64748b",
-    textMuted:    "#475569",
-    inputBg:      "#0c1524",
-    inputBorder:  "rgba(255,255,255,0.08)",
-    shadow:       "none",
+    textSecondary:"#94a3b8",
+    textMuted:    "#64748b",
+    inputBg:      "#0d1322",
+    inputBorder:  "rgba(255,255,255,0.15)",
+    shadow:       "0 4px 20px rgba(0,0,0,0.4)",
   };
 
   const getAvatarUrl = (url) => {
     if (!url) return null;
-    return url.startsWith("/") ? `http://localhost:21081${url}` : url;
+    return url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
   };
 
   const syncFormFromProfile = (record) => {
@@ -643,6 +643,8 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
         </div>
       )}
 
+      {false && (
+      <>
       {/* ── Elevate Privileges Panel (Cân đối dạng ngăn thả mượt mà) ── */}
       <div style={{
         background: t.surface,
@@ -826,6 +828,9 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
           )}
         </div>
       </div>
+
+      </>
+      )}
 
       {/* ── Deactivation Panel ── */}
       <div style={{

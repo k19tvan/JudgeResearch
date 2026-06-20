@@ -14,8 +14,13 @@ export default function ResearchTab({ isLight = false }) {
   const [roadmaps, setRoadmaps] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState("");
-  // Thêm state lưu trữ từ khóa tìm kiếm
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Quản lý mục tiêu chuẩn bị xóa (Draft hoặc Roadmap) bằng Modal nội bộ
+  const [deleteTarget, setDeleteTarget] = useState(null); // { type: 'draft' | 'roadmap', id: number, name: string }
+
+  const userRole = localStorage.getItem("user_role") || "user";
+  const myUserId = Number(localStorage.getItem("user_id") || "0");
 
   const [formData, setFormData] = useState({
     roadmap_name: "",
@@ -24,23 +29,48 @@ export default function ResearchTab({ isLight = false }) {
     user_note: "",
     framework: "PyTorch",
     num_test_cases: 3,
-    user_id: localStorage.getItem("user_id") || DEFAULT_USER_ID,
+    user_id: myUserId,
   });
 
-  const userId = Number(formData.user_id || DEFAULT_USER_ID);
-  const userRole = localStorage.getItem("user_role") || "user";
+  // =============== CƠ CHẾ TỰ CHỮA LÀNH (AUTO-HEAL CORRUPTED LOCAL STORAGE) ===============
+  useEffect(() => {
+    try {
+      const token = localStorage.getItem("access_token");
+      if (token) {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(c => 
+          '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+        ).join(''));
+        const payload = JSON.parse(jsonPayload);
+        
+        if (payload.user_id && String(localStorage.getItem("user_id")) !== String(payload.user_id)) {
+          console.log("[Auto-Heal] Khôi phục user_id chính xác:", payload.user_id);
+          localStorage.setItem("user_id", String(payload.user_id));
+          setFormData(prev => ({ ...prev, user_id: Number(payload.user_id) }));
+        }
+        if (payload.role && localStorage.getItem("user_role") !== payload.role) {
+          console.log("[Auto-Heal] Khôi phục user_role chính xác:", payload.role);
+          localStorage.setItem("user_role", payload.role);
+        }
+      }
+    } catch (e) {
+      console.error("[Auto-Heal Error] Không thể giải mã token để phục hồi ID:", e);
+    }
+  }, []);
 
   const refreshRoadmaps = async () => {
     try {
+      const cleanUserId = Number(localStorage.getItem("user_id") || "0");
       if (userRole === "user") {
         const roadmapResult = await fetchRoadmaps(null, "public");
         setRoadmaps(roadmapResult?.data || []);
         setDraftSessions([]);
       } else {
-        if (!userId || userId <= 0) return;
+        if (!cleanUserId || cleanUserId <= 0) return;
         const [draftResult, roadmapResult] = await Promise.all([
-          fetchDraftSessions(userId),
-          fetchRoadmaps(userId),
+          fetchDraftSessions(cleanUserId),
+          fetchRoadmaps(cleanUserId),
         ]);
         setDraftSessions(draftResult?.data || []);
         setRoadmaps(roadmapResult?.data || []);
@@ -51,13 +81,20 @@ export default function ResearchTab({ isLight = false }) {
   };
 
   useEffect(() => {
-    if (userRole === "user") {
-      refreshRoadmaps();
-    } else if (userId > 0) {
-      localStorage.setItem("user_id", String(userId));
-      refreshRoadmaps();
+    refreshRoadmaps();
+  }, [myUserId, userRole]);
+
+  // Polling tự động tại giao diện danh sách khi có phiên Draft đang được AI phân tích ("processing")
+  useEffect(() => {
+    let intervalId;
+    const hasProcessing = draftSessions.some(session => session.status === "processing");
+    if (hasProcessing) {
+      intervalId = setInterval(refreshRoadmaps, 4000);
     }
-  }, [userId, userRole]);
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [draftSessions]);
 
   const handleChange = (e) => {
     const { name, value, type } = e.target;
@@ -72,9 +109,10 @@ export default function ResearchTab({ isLight = false }) {
     setError("");
     setLoading("create");
     try {
+      const activeUserId = Number(localStorage.getItem("user_id") || myUserId);
       const result = await createProblemsFromRepo({
         ...formData,
-        user_id: Number(formData.user_id),
+        user_id: activeUserId,
         num_test_cases: Number(formData.num_test_cases)
       });
       const sessionId = result?.data?.session_id;
@@ -89,7 +127,53 @@ export default function ResearchTab({ isLight = false }) {
     }
   };
 
-  // Thực hiện lọc local theo Roadmap Name và Repository URL
+  // Kích hoạt Modal xóa nháp
+  const triggerDeleteDraft = (session) => {
+    setDeleteTarget({
+      type: "draft",
+      id: session.id,
+      name: session.roadmap_name || "Untitled roadmap"
+    });
+  };
+
+  // Kích hoạt Modal xóa Roadmap
+  const triggerDeleteRoadmap = (roadmap) => {
+    setDeleteTarget({
+      type: "roadmap",
+      id: roadmap.id,
+      name: roadmap.name
+    });
+  };
+
+  // Thực thi yêu cầu xóa chính thức lên Backend từ Modal
+  const confirmDeleteAction = async () => {
+    if (!deleteTarget) return;
+    const { type, id } = deleteTarget;
+    setError("");
+    setDeleteTarget(null); // Đóng nhanh cửa sổ xác nhận
+
+    try {
+      const token = localStorage.getItem("access_token");
+      const url = type === "draft"
+        ? `http://localhost:21081/api/problems/draft_sessions/${id}`
+        : `http://localhost:21081/api/roadmaps/${id}`;
+
+      const response = await fetch(url, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.detail || `Failed to delete ${type}`);
+      }
+      await refreshRoadmaps(); // Tải lại danh sách
+    } catch (err) {
+      setError(err.message || `Failed to delete ${type}`);
+    }
+  };
+
   const filteredDrafts = draftSessions.filter((session) =>
     (session.roadmap_name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
     (session.repository_url || "").toLowerCase().includes(searchQuery.toLowerCase())
@@ -121,20 +205,20 @@ export default function ResearchTab({ isLight = false }) {
     shadow: "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)",
   } : {
     pageBg: "transparent",
-    surface: "#0f172a",
-    surfaceRaised: "#111827",
-    border: "rgba(255,255,255,0.07)",
-    borderStrong: "rgba(255,255,255,0.12)",
+    surface: "#131b2e",
+    surfaceRaised: "#182239",
+    border: "rgba(255,255,255,0.12)",
+    borderStrong: "rgba(255,255,255,0.2)",
     accent: "#06b6d4",
     accentDark: "#0891b2",
     accentBg: "rgba(6,182,212,0.08)",
     accentBorder: "rgba(6,182,212,0.3)",
     textPrimary: "#f1f5f9",
-    textSecondary: "#64748b",
-    textMuted: "#475569",
-    inputBg: "#0c1524",
-    inputBorder: "rgba(255,255,255,0.08)",
-    shadow: "none",
+    textSecondary: "#94a3b8",
+    textMuted: "#64748b",
+    inputBg: "#0d1322",
+    inputBorder: "rgba(255,255,255,0.15)",
+    shadow: "0 4px 20px rgba(0,0,0,0.4)",
   };
 
   const inputStyle = {
@@ -297,18 +381,20 @@ export default function ResearchTab({ isLight = false }) {
                     style={inputStyle}
                   />
                 </div>
-                <div>
-                  <label style={labelStyle}>User ID</label>
-                  <input
-                    name="user_id"
-                    type="number"
-                    min="1"
-                    value={formData.user_id}
-                    onChange={handleChange}
-                    className="tk-input"
-                    style={inputStyle}
-                  />
-                </div>
+                {userRole === "admin" && (
+                  <div>
+                    <label style={labelStyle}>User ID (Admin only)</label>
+                    <input
+                      name="user_id"
+                      type="number"
+                      min="1"
+                      value={formData.user_id}
+                      onChange={handleChange}
+                      className="tk-input"
+                      style={inputStyle}
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -333,7 +419,7 @@ export default function ResearchTab({ isLight = false }) {
                   borderRadius: 7, padding: "10px 20px",
                   fontSize: 12, fontWeight: 600, cursor: "pointer",
                   transition: "background 0.15s",
-                  boxShadow: isLight ? "0 1px 3px rgba(5,150,105,0.35)" : "none",
+                  boxShadow: isLight ? "0 1px 3px rgba(5,150,105,0.035)" : "none",
                   opacity: loading === "create" ? 0.6 : 1,
                 }}
               >
@@ -356,7 +442,7 @@ export default function ResearchTab({ isLight = false }) {
                 {userRole === "user" ? "Public Research Roadmaps" : "Existing Research Roadmaps"}
               </h3>
               <p style={{ margin: "2px 0 0", fontSize: 11, color: t.textMuted }}>
-                {userRole === "user" ? "Official learning roadmaps approved by Admin" : `Drafts and saved roadmaps for user #${userId}`}
+                {userRole === "user" ? "Official learning roadmaps approved by Admin" : `Drafts and saved roadmaps for user #${myUserId}`}
               </p>
             </div>
             <span style={{ fontSize: 11, fontWeight: 700, color: t.textSecondary, background: isLight ? "#e2e8f0" : "rgba(255,255,255,0.07)", padding: "2px 8px", borderRadius: 10 }}>
@@ -378,57 +464,119 @@ export default function ResearchTab({ isLight = false }) {
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             {filteredDrafts.map((session) => (
-              <button
+              <div
                 key={`draft-${session.id}`}
-                type="button"
-                onClick={() => navigate(`/research/draft/${session.id}`)}
+                onClick={() => {
+                  if (session.status !== "processing") {
+                    navigate(`/research/draft/${session.id}`);
+                  }
+                }}
                 style={{
                   background: isLight ? "#fffbeb" : "rgba(245,158,11,0.04)",
                   border: `1px solid ${isLight ? "#fde68a" : "rgba(245,158,11,0.2)"}`,
-                  borderRadius: 10, padding: 16, textAlign: "left", cursor: "pointer",
+                  borderRadius: 10, padding: 16, textAlign: "left", cursor: session.status === "processing" ? "not-allowed" : "pointer",
                   transition: "all 0.15s",
+                  position: "relative",
                 }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = t.accent}
-                onMouseLeave={e => e.currentTarget.style.borderColor = isLight ? "#fde68a" : "rgba(245,158,11,0.2)"}
+                onMouseEnter={e => {
+                  if (session.status !== "processing") {
+                    e.currentTarget.style.borderColor = t.accent;
+                  }
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = isLight ? "#fde68a" : "rgba(245,158,11,0.2)";
+                }}
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8 }}>
-                  <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: t.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: t.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "60%" }}>
                     {session.roadmap_name || "Untitled roadmap"}
                   </h4>
-                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", background: "rgba(245,158,11,0.12)", color: "#d97706", padding: "2px 6px", borderRadius: 4 }}>
-                    Draft
-                  </span>
+                  
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", background: "rgba(245,158,11,0.12)", color: "#d97706", padding: "2px 6px", borderRadius: 4 }}>
+                      {session.status}
+                    </span>
+                    
+                    {/* Nút Xóa nháp (Draft) */}
+                    {session.status !== "processing" && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation(); // Cản sự kiện click lan ra ngoài thẻ div cha
+                          triggerDeleteDraft(session);
+                        }}
+                        style={{
+                          background: "rgba(239, 68, 68, 0.1)",
+                          border: "1px solid rgba(239, 68, 68, 0.3)",
+                          color: "#ef4444",
+                          borderRadius: 4,
+                          padding: "2px 6px",
+                          fontSize: 10,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <p style={{ margin: "0 0 10px", fontSize: 11, color: t.textSecondary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {session.repository_url}
                 </p>
                 <p style={{ margin: 0, fontSize: 10, fontWeight: 600, color: "#d97706" }}>
-                  Continue feedback or save
+                  {session.status === "processing" ? "AI Analysing repo steps..." : "Continue feedback or save"}
                 </p>
-              </button>
+              </div>
             ))}
 
             {filteredRoadmaps.map((roadmap) => (
-              <button
+              <div
                 key={`roadmap-${roadmap.id}`}
-                type="button"
                 onClick={() => navigate(`/research/roadmap/${roadmap.id}`, { state: { previousPath: "/research" } })}
                 style={{
                   background: isLight ? "#f8fafc" : "rgba(255,255,255,0.01)",
                   border: `1px solid ${t.border}`,
                   borderRadius: 10, padding: 16, textAlign: "left", cursor: "pointer",
                   transition: "all 0.15s",
+                  position: "relative",
                 }}
                 onMouseEnter={e => e.currentTarget.style.borderColor = t.accent}
                 onMouseLeave={e => e.currentTarget.style.borderColor = t.border}
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8 }}>
-                  <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: t.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: t.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "60%" }}>
                     {roadmap.name}
                   </h4>
-                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", background: isLight ? "#ecfdf5" : "rgba(16,185,129,0.12)", color: isLight ? "#059669" : "#34d399", padding: "2px 6px", borderRadius: 4 }}>
-                    Saved
-                  </span>
+                  
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", background: isLight ? "#ecfdf5" : "rgba(16,185,129,0.12)", color: isLight ? "#059669" : "#34d399", padding: "2px 6px", borderRadius: 4 }}>
+                      Saved
+                    </span>
+
+                    {/* Nút Xóa Roadmap chính thức */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation(); // Cản sự kiện click lan ra ngoài thẻ div cha
+                        triggerDeleteRoadmap(roadmap);
+                      }}
+                      style={{
+                        background: "rgba(239, 68, 68, 0.1)",
+                        border: "1px solid rgba(239, 68, 68, 0.3)",
+                        color: "#ef4444",
+                        borderRadius: 4,
+                        padding: "2px 6px",
+                        fontSize: 10,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
                 <p style={{ margin: "0 0 10px", fontSize: 11, color: t.textSecondary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {roadmap.repository_url}
@@ -437,7 +585,7 @@ export default function ResearchTab({ isLight = false }) {
                   <span>{roadmap.problem_count || 0} problems</span>
                   <span style={{ color: t.accent }}>Open ›</span>
                 </div>
-              </button>
+              </div>
             ))}
 
             {filteredDraftSessionsCount === 0 && filteredRoadmapsCount === 0 && (
@@ -448,6 +596,63 @@ export default function ResearchTab({ isLight = false }) {
           </div>
         </div>
       </div>
+
+      {/* =============== CUSTOM INTERNAL DELETE CONFIRMATION DIALOG =============== */}
+      {deleteTarget && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1300, display: "flex",
+          alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.65)",
+          padding: 16, backdropFilter: "blur(4px)"
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400, background: t.surface,
+            border: `1px solid ${isLight ? t.accentBorder : t.border}`,
+            borderRadius: 12, padding: 24, boxShadow: t.shadow,
+            fontFamily: "'Inter', sans-serif", color: t.textPrimary,
+            position: "relative"
+          }}>
+            {/* Red top border stripe */}
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 3,
+              background: "#ef4444"
+            }} />
+            <h4 style={{ margin: "0 0 10px 0", fontSize: 15, fontWeight: 700, color: isLight ? "#be123c" : "#f87171" }}>
+              Delete {deleteTarget.type === 'draft' ? 'Draft Session' : 'Research Roadmap'}
+            </h4>
+            <p style={{ margin: "0 0 20px 0", fontSize: 12, color: t.textSecondary, lineHeight: 1.6 }}>
+              Are you sure you want to permanently delete the {deleteTarget.type === 'draft' ? 'draft' : 'roadmap'}{" "}
+              <strong>"{deleteTarget.name}"</strong>?{" "}
+              {deleteTarget.type === 'roadmap' 
+                ? "All associated timeline draft steps will be removed, but converted problems will remain in the system." 
+                : "This action cannot be undone."}
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="tk-ghost-btn"
+                style={{
+                  background: "transparent", border: `1px solid ${t.border}`, color: t.textSecondary,
+                  borderRadius: 6, padding: "6px 14px", fontSize: 11, fontWeight: 600, cursor: "pointer"
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteAction}
+                style={{
+                  background: "#ef4444", border: "none", color: "#fff",
+                  borderRadius: 6, padding: "6px 16px", fontSize: 11, fontWeight: 700, cursor: "pointer"
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

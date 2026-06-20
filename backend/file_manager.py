@@ -27,7 +27,12 @@ def save_and_unzip_file(dest_parent_folder: str, upload: UploadFile, subfolder_n
     os.makedirs(extract_path, exist_ok=True)
     
     # Thực hiện giải nén toàn bộ
+    extract_root = os.path.abspath(extract_path)
     with zipfile.ZipFile(temp_zip_path, 'r') as z:
+        for member in z.infolist():
+            member_path = os.path.abspath(os.path.join(extract_root, member.filename))
+            if member_path != extract_root and not member_path.startswith(extract_root + os.sep):
+                raise ValueError("Unsafe zip archive path")
         z.extractall(extract_path)
         
     # Xóa file zip đệm tạm thời

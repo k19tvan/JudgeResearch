@@ -9,6 +9,7 @@ import ResearchTab from "./tabs/ResearchTab";
 import ProfileTab from "./tabs/ProfileTab";
 import MyRequestsTab from "./tabs/MyRequestsTab";
 import AdminQueueTab from "./tabs/AdminQueueTab";
+import { API_BASE_URL } from "../api";
 
 // IMPORT CÁC TAB MỚI CỦA PHẦN QUẢN LÝ CỘNG ĐỒNG
 import BlogsTab from "./tabs/BlogsTab";
@@ -19,17 +20,17 @@ function IntroTab({ isLight, onNavigate, username, userRole }) {
   const [loadingStats, setLoadingStats] = useState(true);
 
   const t = {
-    pageBg: isLight ? "#eaf2f0" : "#080C14",
-    surface: isLight ? "#ffffff" : "#0D1117",
-    surfaceAlt: isLight ? "#f0faf6" : "#111827",
-    border: isLight ? "rgba(15,23,42,0.10)" : "rgba(255,255,255,0.06)",
+    pageBg: isLight ? "#eaf2f0" : "#090d16",
+    surface: isLight ? "#ffffff" : "#131b2e",
+    surfaceAlt: isLight ? "#f0faf6" : "#182239",
+    border: isLight ? "rgba(15,23,42,0.10)" : "rgba(255,255,255,0.12)",
     accent: isLight ? "#059669" : "#10B981",
-    accentDim: isLight ? "rgba(5,150,105,0.12)" : "rgba(16,185,129,0.10)",
-    accentBorder: isLight ? "rgba(5,150,105,0.30)" : "rgba(16,185,129,0.28)",
-    textPrimary: isLight ? "#0f172a" : "#F1F5F9",
-    textSecondary: isLight ? "#475569" : "#64748B",
-    textMuted: isLight ? "#94a3b8" : "#334155",
-    shadow: isLight ? "0 1px 10px rgba(15,23,42,0.08)" : "0 1px 10px rgba(0,0,0,0.35)",
+    accentDim: isLight ? "rgba(5,150,105,0.12)" : "rgba(16,185,129,0.12)",
+    accentBorder: isLight ? "rgba(5,150,105,0.30)" : "rgba(16,185,129,0.35)",
+    textPrimary: isLight ? "#0f172a" : "#F8FAFC",
+    textSecondary: isLight ? "#475569" : "#94A3B8",
+    textMuted: isLight ? "#94a3b8" : "#64748B",
+    shadow: isLight ? "0 1px 10px rgba(15,23,42,0.08)" : "0 4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)",
   };
 
   useEffect(() => {
@@ -37,15 +38,31 @@ function IntroTab({ isLight, onNavigate, username, userRole }) {
       try {
         const token = localStorage.getItem("access_token");
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const [probRes, subRes, userRes] = await Promise.allSettled([
-          fetch("http://localhost:21081/api/problems/filter?filter_mode=all", { headers }),
-          fetch("http://localhost:21081/api/submissions", { headers }),
-          fetch("http://localhost:21081/api/admin/users", { headers }),
-        ]);
+        
+        // 1. Lấy user_id từ localStorage
+        const currentUserId = localStorage.getItem("user_id");
 
-        const prob = probRes.status === "fulfilled" && probRes.value.ok ? await probRes.value.json() : null;
-        const subs = subRes.status === "fulfilled" && subRes.value.ok ? await subRes.value.json() : null;
-        const usrs = userRes.status === "fulfilled" && userRes.value.ok ? await userRes.value.json() : null;
+        // 2. Thiết lập URL động: 
+        // Nếu có user_id -> dùng mode "all" kèm user_id. 
+        // Nếu chưa có -> chuyển về mode "public" (không yêu cầu user_id trên Backend) để tránh lỗi 400.
+        const problemsUrl = currentUserId
+          ? `http://localhost:21081/api/problems/filter?filter_mode=all&user_id=${currentUserId}`
+          : "http://localhost:21081/api/problems/filter?filter_mode=public";
+
+        const apiCalls = [
+          fetch(problemsUrl, { headers }),
+          fetch("http://localhost:21081/api/submissions", { headers })
+        ];
+
+        if (userRole === "admin") {
+          apiCalls.push(fetch("http://localhost:21081/api/admin/users", { headers }));
+        }
+
+        const results = await Promise.allSettled(apiCalls);
+
+        const prob = results[0].status === "fulfilled" && results[0].value.ok ? await results[0].value.json() : null;
+        const subs = results[1].status === "fulfilled" && results[1].value.ok ? await results[1].value.json() : null;
+        const usrs = userRole === "admin" && results[2]?.status === "fulfilled" && results[2].value.ok ? await results[2].value.json() : null;
 
         const probCount = prob?.data ? prob.data.length : (Array.isArray(prob) ? prob.length : 0);
         const subsCount = subs?.data ? subs.data.length : (Array.isArray(subs) ? subs.length : 0);
@@ -61,9 +78,9 @@ function IntroTab({ isLight, onNavigate, username, userRole }) {
       finally { setLoadingStats(false); }
     }
     loadStats();
-  }, []);
+  }, [userRole]);
 
-  const hour = new Date().getHours();
+const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   // Lọc chỉ giữ lại 4 đề mục nhanh khả dụng (đã bỏ Wiki và Contests)
@@ -423,7 +440,7 @@ export default function Home() {
 
   const getAvatarUrl = (url) => {
     if (!url) return null;
-    return url.startsWith("/") ? `http://localhost:21081${url}` : url;
+    return url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
   };
 
   const handleProfileUpdate = (newUsername, newAvatarUrl) => {
@@ -515,7 +532,7 @@ export default function Home() {
           display: "flex",
           height: "100vh",
           width: "100vw",
-          background: c("#080C14", "#eaf2f0"),
+          background: c("#090d16", "#eaf2f0"),
           color: c("#CBD5E1", "#0f172a"),
           overflow: "hidden",
         }}
@@ -525,8 +542,8 @@ export default function Home() {
             width: sidebarOpen ? 232 : 64,
             minWidth: sidebarOpen ? 232 : 64,
             height: "100vh",
-            background: c("#0D1117", "#f8fffc"),
-            borderRight: c("1px solid rgba(255,255,255,0.06)", "1px solid rgba(15,23,42,0.12)"),
+            background: c("#131b2e", "#f8fffc"),
+            borderRight: c("1px solid rgba(255,255,255,0.12)", "1px solid rgba(15,23,42,0.12)"),
             display: "flex",
             flexDirection: "column",
             transition: "width 0.22s ease, min-width 0.22s ease",
@@ -537,7 +554,7 @@ export default function Home() {
           <div
             style={{
               padding: sidebarOpen ? "20px 20px 18px" : "20px 0 18px",
-              borderBottom: c("1px solid rgba(255,255,255,0.06)", "1px solid rgba(15,23,42,0.12)"),
+              borderBottom: c("1px solid rgba(255,255,255,0.12)", "1px solid rgba(15,23,42,0.12)"),
               display: "flex",
               alignItems: "center",
               gap: 10,
@@ -638,7 +655,7 @@ export default function Home() {
 
           <div
             style={{
-              borderTop: c("1px solid rgba(255,255,255,0.06)", "1px solid rgba(15,23,42,0.12)"),
+              borderTop: c("1px solid rgba(255,255,255,0.12)", "1px solid rgba(15,23,42,0.12)"),
               padding: sidebarOpen ? "14px 16px" : "14px 0",
               display: "flex",
               alignItems: "center",
@@ -646,7 +663,7 @@ export default function Home() {
               justifyContent: sidebarOpen ? "flex-start" : "center",
               flexShrink: 0,
               marginTop: "auto",
-              background: c("#0D1117", "#f8fffc"),
+              background: c("#131b2e", "#f8fffc"),
             }}
           >
             <div
@@ -683,8 +700,8 @@ export default function Home() {
           <header
             style={{
               height: 56,
-              borderBottom: c("1px solid rgba(255,255,255,0.06)", "1px solid rgba(15,23,42,0.12)"),
-              background: c("#0D1117", "#f8fffc"),
+              borderBottom: c("1px solid rgba(255,255,255,0.12)", "1px solid rgba(15,23,42,0.12)"),
+              background: c("#131b2e", "#f8fffc"),
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",

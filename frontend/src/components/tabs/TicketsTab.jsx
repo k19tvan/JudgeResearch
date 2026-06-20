@@ -1,4 +1,5 @@
 // src/components/tabs/TicketsTab.jsx
+import { API_BASE_URL } from "../../api";
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { customFetch } from "../../api";
@@ -380,13 +381,13 @@ export default function TicketsTab({ isLight = false }) {
     textSecondary: "#475569", textMuted: "#94a3b8", inputBg: "#ffffff",
     inputBorder: "#cbd5e1", codeBg: "#f1f5f9", shadow: "0 1px 3px rgba(0,0,0,0.08)",
   } : {
-    pageBg: "transparent", surface: "#0f172a", surfaceRaised: "#111827",
-    border: "rgba(255,255,255,0.07)", borderStrong: "rgba(255,255,255,0.12)",
+    pageBg: "transparent", surface: "#131b2e", surfaceRaised: "#182239",
+    border: "rgba(255,255,255,0.12)", borderStrong: "rgba(255,255,255,0.2)",
     accent: "#06b6d4", accentDark: "#0891b2", accentBg: "rgba(6,182,212,0.08)",
     accentBorder: "rgba(6,182,212,0.3)", tableHead: "#e2e8f0", tableHeadBg: "rgba(255,255,255,0.03)",
-    textPrimary: "#f1f5f9", textSecondary: "#64748b", textMuted: "#475569",
-    inputBg: "#0c1524", inputBorder: "rgba(255,255,255,0.08)", codeBg: "rgba(255,255,255,0.02)",
-    shadow: "none",
+    textPrimary: "#f1f5f9", textSecondary: "#94a3b8", textMuted: "#64748b",
+    inputBg: "#0d1322", inputBorder: "rgba(255,255,255,0.15)", codeBg: "rgba(255,255,255,0.02)",
+    shadow: "0 4px 20px rgba(0,0,0,0.4)",
   };
 
   const inputStyle = {
@@ -403,7 +404,7 @@ export default function TicketsTab({ isLight = false }) {
         {urls.map((url, idx) => (
           <div key={idx} style={{ position: "relative" }}>
             <img 
-              src={`http://localhost:21081${url}`} 
+              src={`${API_BASE_URL}${url}`} 
               alt="Attachment" 
               onClick={() => { if (!isEditing) setZoomedImage(url); }}
               style={{ 
