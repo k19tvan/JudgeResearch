@@ -1,4 +1,5 @@
 // src/components/tabs/TicketsTab.jsx
+import { API_BASE_URL } from "../../api";
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { customFetch } from "../../api";
@@ -403,7 +404,7 @@ export default function TicketsTab({ isLight = false }) {
         {urls.map((url, idx) => (
           <div key={idx} style={{ position: "relative" }}>
             <img 
-              src={`http://localhost:21081${url}`} 
+              src={`${API_BASE_URL}${url}`} 
               alt="Attachment" 
               onClick={() => { if (!isEditing) setZoomedImage(url); }}
               style={{ 

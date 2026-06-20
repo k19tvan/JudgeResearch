@@ -1,7 +1,7 @@
 // src/components/tabs/ProfileTab.jsx
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { deactivateUserAccount, fetchUserProfile, updateUserProfile } from "../../api";
+import { API_BASE_URL, deactivateUserAccount, fetchUserProfile, updateUserProfile } from "../../api";
 
 const emptyForm = {
   username: "",
@@ -72,7 +72,7 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
 
   const getAvatarUrl = (url) => {
     if (!url) return null;
-    return url.startsWith("/") ? `http://localhost:21081${url}` : url;
+    return url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
   };
 
   const syncFormFromProfile = (record) => {
@@ -643,6 +643,8 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
         </div>
       )}
 
+      {false && (
+      <>
       {/* ── Elevate Privileges Panel (Cân đối dạng ngăn thả mượt mà) ── */}
       <div style={{
         background: t.surface,
@@ -826,6 +828,9 @@ export default function ProfileTab({ isLight = false, onProfileUpdate }) {
           )}
         </div>
       </div>
+
+      </>
+      )}
 
       {/* ── Deactivation Panel ── */}
       <div style={{

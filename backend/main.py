@@ -46,9 +46,18 @@ app.mount("/tickets_media", StaticFiles(directory="storage/tickets"), name="tick
 app.mount("/blogs_media", StaticFiles(directory="storage/blogs"), name="blogs_media")
 app.mount("/avatars", StaticFiles(directory="storage/avatars"), name="avatars")
 
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOW_ORIGINS",
+        "http://localhost:21080,http://192.168.108.15:21080",
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:21080"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -58,9 +67,15 @@ storage_path = "storage/"
 deepwiki_url = "http://localhost:21082"
 load_dotenv()
 EMAIL_FORMAT_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+}
+MAX_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024
 
 api_key = os.getenv("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key)
+client = genai.Client(api_key=api_key) if api_key else None
 
 def ensure_schema_migrations():
     conn = sqlite3.connect("database/database.db", check_same_thread=False)
@@ -401,7 +416,7 @@ def validate_email_format(email: str) -> Optional[str]:
 
 def fix_problem_from_repo_response(raw_ai_response: str) -> SyntaxWarning:
     prompt = validate_problem_from_repo_prompt.format(last_ai_response=raw_ai_response)
-    ai_response_fixed = client.models.generate_content(
+    ai_response_fixed = ensure_ai_client().models.generate_content(
         model="gemini-3.1-flash-lite",
         config={
             "system_instruction": "You are a strict JSON Validator and Senior Deep Learning Engineer. Your task is to ingest a raw, potentially malformed or technically inaccurate JSON string representing a roadmap of programming tasks, repair it, and output a standardized, production-ready JSON array. Follow the objectives and constraints outlined in the prompt meticulously."
@@ -413,7 +428,7 @@ def fix_problem_from_repo_response(raw_ai_response: str) -> SyntaxWarning:
 
 def fix_create_detailed_response(raw_ai_response: str) -> str:
     prompt = validate_create_detailedly_response_prompt.format(raw_ai_response=raw_ai_response)
-    ai_response_fixed = client.models.generate_content(
+    ai_response_fixed = ensure_ai_client().models.generate_content(
         model="gemini-3.1-flash-lite",
         config={
             "system_instruction": "You are a strict JSON Validator and Senior Deep Learning Engineer. Your task is to ingest a raw, potentially malformed or technically inaccurate JSON string representing detailed problem materials, repair it, and output a standardized, production-ready JSON object. Follow the objectives and constraints outlined in the prompt meticulously."
@@ -435,7 +450,7 @@ def generate_test_inputs_with_gemini(statement: str, solution: str, num_test_cas
     )
     
     # Sử dụng gemini-3.1-flash-lite theo cấu hình tương tự
-    response = client.models.generate_content(
+    response = ensure_ai_client().models.generate_content(
         model="gemini-3.1-flash-lite",
         config={
             "system_instruction": (
@@ -630,9 +645,10 @@ async def create_problem_manual(
     solution_markdown: Optional[str] = Form(""),
     coding_markdown: Optional[str] = Form(""),
     checker_markdown: Optional[str] = Form(""),
-    author_id: int = Form(...),
+    author_id: Optional[int] = Form(None),
     input_zip: Optional[UploadFile] = File(None),   
     output_zip: Optional[UploadFile] = File(None), 
+    authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
     name = name.strip()
@@ -642,10 +658,8 @@ async def create_problem_manual(
         raise HTTPException(status_code=400, detail="Problem statement cannot be empty")
 
     cursor = db.cursor()
-    cursor.execute("SELECT role FROM users WHERE id = ?", (author_id,))
-    user_row = cursor.fetchone()
-    if not user_row or user_row["role"] not in ("admin", "contributor"):
-        raise HTTPException(status_code=403, detail="Unauthorized. Only admins or contributors can create problems.")
+    current_user = require_role(cursor, authorization, ("admin", "contributor"))
+    author_id = current_user["id"]
 
     try:
         name_slug = normalize_problem_name(name)
@@ -716,9 +730,25 @@ async def create_problem_manual(
 
 # Usecase: Fetch and filter problems
 @app.get("/api/problems/filter")
-def filter_problems(user_id: int = None, filter_mode: str = "public", db: sqlite3.Connection = Depends(get_db)):
+def filter_problems(
+    user_id: Optional[int] = None,
+    filter_mode: str = "public",
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
+        current_user = None
+        if authorization:
+            try:
+                current_user = get_current_user(cursor, authorization)
+                user_id = current_user["id"] if current_user["role"] != "admin" else user_id or current_user["id"]
+            except HTTPException:
+                if filter_mode != "public":
+                    raise
+                user_id = None
+        if filter_mode in ("private", "all") and not current_user:
+            raise HTTPException(status_code=401, detail="Authentication required")
         if user_id:
             select_clause = """
                 p.id, p.name, p.source, p.author_id, p.is_public, p.request_status, p.created_at,
@@ -739,10 +769,14 @@ def filter_problems(user_id: int = None, filter_mode: str = "public", db: sqlite
         elif filter_mode == "private":
             if not user_id:
                 raise HTTPException(status_code=400, detail="user_id required for private filter")
+            if current_user and current_user["role"] != "admin" and int(user_id) != int(current_user["id"]):
+                raise HTTPException(status_code=403, detail="Cannot view another user's private problems")
             cursor.execute(f"SELECT {select_clause} FROM problems p WHERE p.author_id = ? ORDER BY p.created_at DESC", (user_id, user_id, user_id))
         elif filter_mode == "all":
             if not user_id:
                 raise HTTPException(status_code=400, detail="user_id required for all filter")
+            if current_user and current_user["role"] != "admin" and int(user_id) != int(current_user["id"]):
+                raise HTTPException(status_code=403, detail="Cannot view another user's private problems")
             cursor.execute(f"SELECT {select_clause} FROM problems p WHERE p.is_public = 1 OR p.author_id = ? ORDER BY p.created_at DESC", (user_id, user_id, user_id))
         else:
             raise HTTPException(status_code=400, detail="Invalid filter_mode.")
@@ -752,11 +786,16 @@ def filter_problems(user_id: int = None, filter_mode: str = "public", db: sqlite
 
 # Usecase: Get problem content to display in livecoding page
 @app.get("/api/problems/{problem_id}/content")
-def get_problem_content(problem_id: int, user_id: Optional[int] = None, db: sqlite3.Connection = Depends(get_db)):
+def get_problem_content(
+    problem_id: int,
+    user_id: Optional[int] = None,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
         cursor.execute("""
-            SELECT id, name, source, statement_path, theory_path, tutorial_path, solution_path, coding_path, checker_path
+            SELECT id, name, source, author_id, is_public, request_status, statement_path, theory_path, tutorial_path, solution_path, coding_path, checker_path
             FROM problems
             WHERE id = ?
         """, (problem_id,))
@@ -765,12 +804,15 @@ def get_problem_content(problem_id: int, user_id: Optional[int] = None, db: sqli
             raise HTTPException(status_code=404, detail="Problem not found")
 
         # Xác định vai trò của người dùng yêu cầu
-        role = "user"
-        if user_id:
-            cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
-            user = cursor.fetchone()
-            if user:
-                role = user["role"]
+        role = "anonymous"
+        current_user_id = None
+        if authorization:
+            current_user = get_current_user(cursor, authorization)
+            role = current_user["role"]
+            current_user_id = current_user["id"]
+
+        if row["is_public"] != 1 and (not current_user_id or (role != "admin" and int(current_user_id) != int(row["author_id"]))):
+            raise HTTPException(status_code=403, detail="This problem is private")
 
         def read_file(path_value: Optional[str]) -> str:
             if not path_value or not os.path.exists(path_value):
@@ -789,12 +831,12 @@ def get_problem_content(problem_id: int, user_id: Optional[int] = None, db: sqli
 
         if role not in ("admin", "contributor"):
             has_solved = False
-            if user_id:
+            if current_user_id:
                 cursor.execute("""
                     SELECT 1 FROM submissions 
                     WHERE problem_id = ? AND user_id = ? AND (score = 100 OR status = 'accepted') 
                     LIMIT 1
-                """, (problem_id, user_id))
+                """, (problem_id, current_user_id))
                 if cursor.fetchone():
                     has_solved = True
             
@@ -973,11 +1015,13 @@ async def run_problem_code(
 async def submit_problem_code(
     problem_id: int,
     payload: SubmitRequest,
+    authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
-    user_id = payload.user_id
     submitted_code = payload.submitted_code
     cursor = db.cursor()
+    current_user = get_current_user(cursor, authorization)
+    user_id = current_user["id"]
 
     cursor.execute("""
         SELECT input_folder_path, output_folder_path 
@@ -1233,6 +1277,52 @@ def require_admin_user(cursor: sqlite3.Cursor, authorization: Optional[str]) -> 
         raise HTTPException(status_code=403, detail="Admin privileges required")
     return dict(admin)
 
+def get_current_user(cursor: sqlite3.Cursor, authorization: Optional[str]) -> dict:
+    identity = get_authenticated_identity(authorization)
+    user_id = identity.get("user_id")
+    if user_id is not None:
+        cursor.execute("SELECT id, username, role, status FROM users WHERE id = ?", (user_id,))
+    else:
+        cursor.execute(
+            "SELECT id, username, role, status FROM users WHERE LOWER(username) = LOWER(?)",
+            (identity.get("username", ""),)
+        )
+    user = cursor.fetchone()
+    if not user or user["status"] != "active":
+        raise HTTPException(status_code=401, detail="Authenticated user is inactive or missing")
+    return dict(user)
+
+def require_role(cursor: sqlite3.Cursor, authorization: Optional[str], allowed_roles: tuple[str, ...]) -> dict:
+    user = get_current_user(cursor, authorization)
+    if user["role"] not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Insufficient privileges")
+    return user
+
+def require_owner_or_admin(current_user: dict, owner_id: int, detail: str = "Unauthorized") -> None:
+    if current_user["role"] != "admin" and int(current_user["id"]) != int(owner_id):
+        raise HTTPException(status_code=403, detail=detail)
+
+def ensure_ai_client():
+    if client is None:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY is not configured")
+    return client
+
+async def save_uploaded_image(upload: UploadFile, prefix: str, folder: str, public_base: str) -> str:
+    if not upload.filename:
+        raise HTTPException(status_code=400, detail="Uploaded image is missing a filename")
+    ext = ALLOWED_IMAGE_TYPES.get(upload.content_type or "")
+    if not ext:
+        raise HTTPException(status_code=400, detail="Images must be JPG, PNG, or WEBP")
+    data = await upload.read()
+    if len(data) > MAX_IMAGE_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="Image file size must be <= 5MB")
+    os.makedirs(folder, exist_ok=True)
+    filename = f"{prefix}_{uuid.uuid4()}.{ext}"
+    file_path = os.path.join(folder, filename)
+    with open(file_path, "wb") as f:
+        f.write(data)
+    return f"{public_base}/{filename}"
+
 # Usecase : Get user profile information (for profile page and admin management)
 @app.get("/api/users/profile/{user_id}")
 def get_user_profile(user_id: int, db: sqlite3.Connection = Depends(get_db)):
@@ -1448,12 +1538,13 @@ def deactivate_user_account(
         raise HTTPException(status_code=500, detail=f"Database execution error: {str(e)}")
 
 @app.post("/api/users/make-contributor")
-def make_user_contributor(payload: MakeContributorRequest, db: sqlite3.Connection = Depends(get_db)):
-    contributor_secret = os.getenv("CONTRIBUTOR_SECRET_KEY", "SUPER_SECRET_CONTRIBUTOR_2026")
-    if payload.secret_key != contributor_secret:
-        raise HTTPException(status_code=400, detail="Invalid contributor secret key. Access denied.")
-        
+def make_user_contributor(
+    payload: MakeContributorRequest,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
+    require_admin_user(cursor, authorization)
     try:
         cursor.execute("UPDATE users SET role = 'contributor' WHERE id = ?", (payload.user_id,))
         db.commit()
@@ -1467,12 +1558,13 @@ def make_user_contributor(payload: MakeContributorRequest, db: sqlite3.Connectio
     
 # Usecase : Add admin role to a user (for admin management)
 @app.post("/api/users/make-admin")
-def make_user_admin(payload: MakeAdminRequest, db: sqlite3.Connection = Depends(get_db)):
-    admin_secret = os.getenv("ADMIN_SECRET_KEY", "SUPER_SECRET_ADMIN_2026")
-    if payload.secret_key != admin_secret:
-        raise HTTPException(status_code=400, detail="Invalid admin secret key. Access denied.")
-        
+def make_user_admin(
+    payload: MakeAdminRequest,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
+    require_admin_user(cursor, authorization)
     try:
         cursor.execute("UPDATE users SET role = 'admin' WHERE id = ?", (payload.user_id,))
         db.commit()
@@ -1486,15 +1578,21 @@ def make_user_admin(payload: MakeAdminRequest, db: sqlite3.Connection = Depends(
 
 # Usecase : Problem approval workflow (For user to request approval and admin to approve/reject)
 @app.post("/api/problems/{problem_id}/request-approval")
-def request_problem_approval(problem_id: int, payload: RequestApprovalPayload, db: sqlite3.Connection = Depends(get_db)):
+def request_problem_approval(
+    problem_id: int,
+    payload: Optional[RequestApprovalPayload] = None,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
+        current_user = require_role(cursor, authorization, ("admin", "contributor"))
         cursor.execute("SELECT author_id, request_status, is_public FROM problems WHERE id = ?", (problem_id,))
         problem = cursor.fetchone()
         if not problem:
             raise HTTPException(status_code=404, detail="Problem not found")
         
-        if problem["author_id"] != payload.user_id:
+        if current_user["role"] != "admin" and problem["author_id"] != current_user["id"]:
             raise HTTPException(status_code=403, detail="Only the problem author can request public approval")
         
         if problem["is_public"] == 1:
@@ -1512,13 +1610,15 @@ def request_problem_approval(problem_id: int, payload: RequestApprovalPayload, d
 
 # 2. Admin phê duyệt bài tập lên hệ thống (Chuyển is_public = 1)
 @app.post("/api/problems/{problem_id}/approve")
-def approve_problem(problem_id: int, payload: AdminActionPayload, db: sqlite3.Connection = Depends(get_db)):
+def approve_problem(
+    problem_id: int,
+    payload: Optional[AdminActionPayload] = None,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
-        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.admin_id,))
-        user = cursor.fetchone()
-        if not user or user["role"] != "admin":
-            raise HTTPException(status_code=403, detail="Unauthorized. Admin privileges required.")
+        require_admin_user(cursor, authorization)
         
         cursor.execute("SELECT id FROM problems WHERE id = ?", (problem_id,))
         if not cursor.fetchone():
@@ -1533,13 +1633,15 @@ def approve_problem(problem_id: int, payload: AdminActionPayload, db: sqlite3.Co
 
 # 3. Admin từ chối phê duyệt bài tập (Giữ nguyên is_public = 0)
 @app.post("/api/problems/{problem_id}/reject")
-def reject_problem(problem_id: int, payload: AdminActionPayload, db: sqlite3.Connection = Depends(get_db)):
+def reject_problem(
+    problem_id: int,
+    payload: Optional[AdminActionPayload] = None,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
-        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.admin_id,))
-        user = cursor.fetchone()
-        if not user or user["role"] != "admin":
-            raise HTTPException(status_code=403, detail="Unauthorized. Admin privileges required.")
+        require_admin_user(cursor, authorization)
         
         cursor.execute("UPDATE problems SET request_status = 'REJECTED', is_public = 0 WHERE id = ?", (problem_id,))
         db.commit()
@@ -1552,15 +1654,13 @@ def reject_problem(problem_id: int, payload: AdminActionPayload, db: sqlite3.Con
 @app.post("/api/problems/{problem_id}/private")
 def make_problem_private(
     problem_id: int,
-    payload: RequestApprovalPayload,
+    payload: Optional[RequestApprovalPayload] = None,
+    authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
     try:
-        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
-        user = cursor.fetchone()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+        user = require_role(cursor, authorization, ("admin", "contributor"))
         
         cursor.execute("SELECT author_id, is_public FROM problems WHERE id = ?", (problem_id,))
         problem = cursor.fetchone()
@@ -1570,7 +1670,7 @@ def make_problem_private(
         role = user["role"]
         author_id = problem["author_id"]
         
-        if role != "admin" and (role != "contributor" or author_id != payload.user_id):
+        if role != "admin" and (role != "contributor" or author_id != user["id"]):
             raise HTTPException(
                 status_code=403, 
                 detail="Unauthorized. Only admins or the problem author (contributor) can make this problem private."
@@ -1590,15 +1690,13 @@ def make_problem_private(
 @app.post("/api/problems/{problem_id}/public")
 def make_problem_public(
     problem_id: int,
-    payload: RequestApprovalPayload,
+    payload: Optional[RequestApprovalPayload] = None,
+    authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
     try:
-        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
-        user = cursor.fetchone()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+        user = require_role(cursor, authorization, ("admin", "contributor"))
         
         cursor.execute("SELECT author_id, request_status, is_public FROM problems WHERE id = ?", (problem_id,))
         problem = cursor.fetchone()
@@ -1610,7 +1708,7 @@ def make_problem_public(
         request_status = problem["request_status"]
         
         if role != "admin":
-            if role != "contributor" or author_id != payload.user_id:
+            if role != "contributor" or author_id != user["id"]:
                 raise HTTPException(
                     status_code=403, 
                     detail="Unauthorized. Only admins or the problem author can make this problem public."
@@ -1635,13 +1733,14 @@ def make_problem_public(
 
 # 4. Admin lấy danh sách toàn bộ các bài tập đang chờ duyệt (Pending Queue)
 @app.get("/api/problems/pending-requests")
-def get_pending_requests(admin_id: int, db: sqlite3.Connection = Depends(get_db)):
+def get_pending_requests(
+    admin_id: Optional[int] = None,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
-        cursor.execute("SELECT role FROM users WHERE id = ?", (admin_id,))
-        user = cursor.fetchone()
-        if not user or user["role"] != "admin":
-            raise HTTPException(status_code=403, detail="Unauthorized")
+        require_admin_user(cursor, authorization)
         
         cursor.execute("""
             SELECT p.id, p.name, p.source, p.author_id, p.is_public, p.request_status, p.created_at,
@@ -1657,9 +1756,15 @@ def get_pending_requests(admin_id: int, db: sqlite3.Connection = Depends(get_db)
 
 # 5. User lấy danh sách lịch sử yêu cầu phê duyệt của chính họ
 @app.get("/api/problems/my-requests")
-def get_my_requests(user_id: int, db: sqlite3.Connection = Depends(get_db)):
+def get_my_requests(
+    user_id: Optional[int] = None,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
+        current_user = get_current_user(cursor, authorization)
+        user_id = current_user["id"]
         cursor.execute("""
             SELECT id, name, source, is_public, request_status, created_at
             FROM problems
@@ -1721,9 +1826,18 @@ def get_problems_from_repo(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @app.get("/api/problems/draft_sessions")
-def get_draft_sessions(user_id: int, db: sqlite3.Connection = Depends(get_db)):
+def get_draft_sessions(
+    user_id: Optional[int] = None,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
+        current_user = get_current_user(cursor, authorization)
+        if current_user["role"] != "admin":
+            user_id = current_user["id"]
+        elif user_id is None:
+            user_id = current_user["id"]
         cursor.execute("""
             SELECT id, roadmap_name, repository_url, status, num_test_cases, created_at 
             FROM draft_problem_sessions 
@@ -1745,22 +1859,7 @@ def list_managed_users(
 ):
     cursor = db.cursor()
     try:
-        is_authenticated = False
-        if authorization:
-            try:
-                require_admin_user(cursor, authorization)
-                is_authenticated = True
-            except HTTPException:
-                pass
-
-        if not is_authenticated:
-            if admin_id is not None:
-                cursor.execute("SELECT role, status FROM users WHERE id = ?", (admin_id,))
-                user = cursor.fetchone()
-                if not user or user["role"] != "admin" or user["status"] != "active":
-                    raise HTTPException(status_code=403, detail="Admin privileges required")
-            else:
-                raise HTTPException(status_code=401, detail="Authentication required")
+        require_admin_user(cursor, authorization)
 
         params = []
         where_clause = ""
@@ -2554,7 +2653,11 @@ def unpublish_roadmap(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @app.get("/api/problems/draft_sessions/{session_id}")
-def get_draft_session_detail(session_id: int, db: sqlite3.Connection = Depends(get_db)):
+def get_draft_session_detail(
+    session_id: int,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
         cursor.execute("""
@@ -2565,6 +2668,8 @@ def get_draft_session_detail(session_id: int, db: sqlite3.Connection = Depends(g
         session = cursor.fetchone()
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
+        current_user = get_current_user(cursor, authorization)
+        require_owner_or_admin(current_user, session["user_id"], "Cannot view another user's draft session")
 
         proposed_problems = []
         if session["problems_json"]:
@@ -2625,12 +2730,19 @@ def update_draft_session_problems(
     
 # Usecase: Lấy danh sách testcase của bài tập
 @app.get("/api/problems/{problem_id}/testcases")
-def get_problem_testcases(problem_id: int, db: sqlite3.Connection = Depends(get_db)):
+def get_problem_testcases(
+    problem_id: int,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
-    cursor.execute("SELECT input_folder_path, output_folder_path FROM problems WHERE id = ?", (problem_id,))
+    cursor.execute("SELECT author_id, input_folder_path, output_folder_path FROM problems WHERE id = ?", (problem_id,))
     row = cursor.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Problem not found")
+    current_user = require_role(cursor, authorization, ("admin", "contributor"))
+    if current_user["role"] != "admin" and int(current_user["id"]) != int(row["author_id"]):
+        raise HTTPException(status_code=403, detail="Cannot view testcases for another author's problem")
     
     input_folder = row["input_folder_path"]
     output_folder = row["output_folder_path"]
@@ -2680,7 +2792,7 @@ def get_problem_testcases(problem_id: int, db: sqlite3.Connection = Depends(get_
 @app.put("/api/problems/{problem_id}")
 async def update_problem(
     problem_id: int,
-    user_id: int = Form(...),
+    user_id: Optional[int] = Form(None),
     name: Optional[str] = Form(None),
     source: Optional[str] = Form(None),
     statement_markdown: Optional[str] = Form(None),
@@ -2692,13 +2804,12 @@ async def update_problem(
     testcases: Optional[str] = Form(None),
     input_zip: Optional[UploadFile] = File(None),   
     output_zip: Optional[UploadFile] = File(None), 
+    authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
-    cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
-    user = cursor.fetchone()
-    if not user or user["role"] not in ("admin", "contributor"):
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    user = require_role(cursor, authorization, ("admin", "contributor"))
+    user_id = user["id"]
     
     cursor.execute("SELECT author_id, request_status, statement_path, theory_path, tutorial_path, solution_path, coding_path, checker_path, input_folder_path, output_folder_path FROM problems WHERE id = ?", (problem_id,))
     prob = cursor.fetchone()
@@ -2820,12 +2931,14 @@ async def update_problem(
 
 # Usecase : Xóa bài tập cho contribution và admin
 @app.delete("/api/problems/{problem_id}")
-def delete_problem(problem_id: int, payload: ProblemDeletePayload, db: sqlite3.Connection = Depends(get_db)):
+def delete_problem(
+    problem_id: int,
+    payload: Optional[ProblemDeletePayload] = None,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
-    cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
-    user = cursor.fetchone()
-    if not user or user["role"] not in ("admin", "contributor"):
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    user = require_role(cursor, authorization, ("admin", "contributor"))
     
     cursor.execute("SELECT author_id, request_status, statement_path, theory_path, tutorial_path, solution_path, coding_path, checker_path FROM problems WHERE id = ?", (problem_id,))
     prob = cursor.fetchone()
@@ -2833,7 +2946,7 @@ def delete_problem(problem_id: int, payload: ProblemDeletePayload, db: sqlite3.C
         raise HTTPException(status_code=404, detail="Problem not found")
     
     if user["role"] == "contributor":
-        if prob["author_id"] != payload.user_id:
+        if prob["author_id"] != user["id"]:
             raise HTTPException(status_code=403, detail="You can only delete your own problems")
             
     for key in ["statement_path", "theory_path", "tutorial_path", "solution_path", "coding_path", "checker_path"]:
@@ -2886,19 +2999,19 @@ def get_blog_detail(blog_id: int, user_id: Optional[int] = None, db: sqlite3.Con
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/blogs")
-def create_blog(payload: BlogCreate, db: sqlite3.Connection = Depends(get_db)):
+def create_blog(payload: BlogCreate, authorization: Optional[str] = Header(None), db: sqlite3.Connection = Depends(get_db)):
     if not payload.title.strip() or not payload.content.strip():
         raise HTTPException(status_code=400, detail="Title and content cannot be empty")
     cursor = db.cursor()
     try:
-        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.author_id,))
-        user = cursor.fetchone()
+        user = require_role(cursor, authorization, ("admin", "contributor"))
+        author_id = user["id"]
         if not user or user["role"] not in ("admin", "contributor"):
             raise HTTPException(status_code=403, detail="Unauthorized. Only admins or contributors can create blog posts.")
 
         cursor.execute(
             "INSERT INTO blogs (title, content, author_id) VALUES (?, ?, ?)",
-            (payload.title.strip(), payload.content.strip(), payload.author_id)
+            (payload.title.strip(), payload.content.strip(), author_id)
         )
         db.commit()
         return {"status": "success", "message": "Blog created successfully", "id": cursor.lastrowid}
@@ -2921,13 +3034,12 @@ async def upload_blog_image(image: UploadFile = File(...)):
     return {"status": "success", "url": f"http://localhost:21081/blogs_media/{filename}"}
 
 @app.put("/api/blogs/{blog_id}")
-def update_blog(blog_id: int, payload: BlogUpdate, db: sqlite3.Connection = Depends(get_db)):
+def update_blog(blog_id: int, payload: BlogUpdate, authorization: Optional[str] = Header(None), db: sqlite3.Connection = Depends(get_db)):
     if not payload.title.strip() or not payload.content.strip():
         raise HTTPException(status_code=400, detail="Title and content cannot be empty")
     cursor = db.cursor()
     try:
-        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
-        user = cursor.fetchone()
+        user = require_role(cursor, authorization, ("admin", "contributor"))
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
             
@@ -2936,7 +3048,7 @@ def update_blog(blog_id: int, payload: BlogUpdate, db: sqlite3.Connection = Depe
         if not blog:
             raise HTTPException(status_code=404, detail="Blog not found")
             
-        if user["role"] != "admin" and (user["role"] != "contributor" or blog["author_id"] != payload.user_id):
+        if user["role"] != "admin" and (user["role"] != "contributor" or blog["author_id"] != user["id"]):
             raise HTTPException(status_code=403, detail="Unauthorized. You can only edit your own blogs.")
             
         cursor.execute(
@@ -2953,7 +3065,7 @@ def update_blog(blog_id: int, payload: BlogUpdate, db: sqlite3.Connection = Depe
             FROM blogs b
             JOIN users u ON b.author_id = u.id
             WHERE b.id = ?
-        """, (payload.user_id, blog_id))
+        """, (user["id"], blog_id))
         updated_row = cursor.fetchone()
         return {"status": "success", "message": "Blog updated successfully", "data": dict(updated_row)}
     except sqlite3.Error as e:
@@ -2961,11 +3073,10 @@ def update_blog(blog_id: int, payload: BlogUpdate, db: sqlite3.Connection = Depe
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/blogs/{blog_id}")
-def delete_blog(blog_id: int, user_id: int, db: sqlite3.Connection = Depends(get_db)):
+def delete_blog(blog_id: int, user_id: Optional[int] = None, authorization: Optional[str] = Header(None), db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
     try:
-        cursor.execute("SELECT role FROM users WHERE id = ?", (user_id,))
-        user = cursor.fetchone()
+        user = require_role(cursor, authorization, ("admin", "contributor"))
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
             
@@ -2974,7 +3085,7 @@ def delete_blog(blog_id: int, user_id: int, db: sqlite3.Connection = Depends(get
         if not blog:
             raise HTTPException(status_code=404, detail="Blog not found")
             
-        if user["role"] != "admin" and (user["role"] != "contributor" or blog["author_id"] != user_id):
+        if user["role"] != "admin" and (user["role"] != "contributor" or blog["author_id"] != user["id"]):
             raise HTTPException(status_code=403, detail="Unauthorized. You can only delete your own blogs.")
             
         cursor.execute("DELETE FROM comments WHERE blog_id = ?", (blog_id,))
@@ -3027,16 +3138,17 @@ def get_comments(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/comments")
-def create_comment(payload: CommentCreate, db: sqlite3.Connection = Depends(get_db)):
+def create_comment(payload: CommentCreate, authorization: Optional[str] = Header(None), db: sqlite3.Connection = Depends(get_db)):
     if not payload.content or not payload.content.strip():
         raise HTTPException(status_code=400, detail="Bình luận không được phép bỏ trống.")
     
     cursor = db.cursor()
+    current_user = get_current_user(cursor, authorization)
     try:
         cursor.execute("""
             INSERT INTO comments (content, user_id, problem_id, blog_id, parent_id)
             VALUES (?, ?, ?, ?, ?)
-        """, (payload.content.strip(), payload.user_id, payload.problem_id, payload.blog_id, payload.parent_id))
+        """, (payload.content.strip(), current_user["id"], payload.problem_id, payload.blog_id, payload.parent_id))
         db.commit()
         return {"status": "success", "message": "Bình luận thành công", "id": cursor.lastrowid}
     except sqlite3.Error as e:
@@ -3044,18 +3156,19 @@ def create_comment(payload: CommentCreate, db: sqlite3.Connection = Depends(get_
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/api/comments/{comment_id}")
-def update_comment(comment_id: int, payload: CommentUpdate, db: sqlite3.Connection = Depends(get_db)):
+def update_comment(comment_id: int, payload: CommentUpdate, authorization: Optional[str] = Header(None), db: sqlite3.Connection = Depends(get_db)):
     if not payload.content or not payload.content.strip():
         raise HTTPException(status_code=400, detail="Bình luận không được phép bỏ trống.")
     cursor = db.cursor()
     try:
+        current_user = get_current_user(cursor, authorization)
         cursor.execute("SELECT user_id FROM comments WHERE id = ?", (comment_id,))
         comment = cursor.fetchone()
         if not comment:
             raise HTTPException(status_code=404, detail="Bình luận không tồn tại")
         
         # Chỉ người viết mới được sửa bình luận của họ
-        if comment["user_id"] != payload.user_id:
+        if comment["user_id"] != current_user["id"]:
             raise HTTPException(status_code=403, detail="Bạn không thể sửa bình luận của người khác")
             
         cursor.execute("UPDATE comments SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (payload.content.strip(), comment_id))
@@ -3066,20 +3179,20 @@ def update_comment(comment_id: int, payload: CommentUpdate, db: sqlite3.Connecti
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/comments/{comment_id}/delete")
-def delete_comment(comment_id: int, payload: CommentDeletePayload, db: sqlite3.Connection = Depends(get_db)):
+def delete_comment(comment_id: int, payload: CommentDeletePayload, authorization: Optional[str] = Header(None), db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
     try:
+        current_user = get_current_user(cursor, authorization)
         cursor.execute("SELECT user_id FROM comments WHERE id = ?", (comment_id,))
         comment = cursor.fetchone()
         if not comment:
             raise HTTPException(status_code=404, detail="Bình luận không tồn tại")
             
-        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
-        user = cursor.fetchone()
+        user = current_user
         if not user:
             raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
             
-        is_owner = comment["user_id"] == payload.user_id
+        is_owner = comment["user_id"] == current_user["id"]
         is_admin = user["role"] == "admin"
         
         if not is_owner and not is_admin:
@@ -3095,37 +3208,39 @@ def delete_comment(comment_id: int, payload: CommentDeletePayload, db: sqlite3.C
 
 # 5.4: Hệ thống Upvote / Downvote (Bình chọn)
 @app.post("/api/votes")
-def handle_vote(payload: VoteRequest, db: sqlite3.Connection = Depends(get_db)):
+def handle_vote(payload: VoteRequest, authorization: Optional[str] = Header(None), db: sqlite3.Connection = Depends(get_db)):
     if not payload.blog_id and not payload.comment_id:
         raise HTTPException(status_code=400, detail="Phải cung cấp blog_id hoặc comment_id")
         
     cursor = db.cursor()
     try:
+        current_user = get_current_user(cursor, authorization)
+        user_id = current_user["id"]
         if payload.blog_id:
-            cursor.execute("SELECT vote_type FROM votes WHERE user_id = ? AND blog_id = ?", (payload.user_id, payload.blog_id))
+            cursor.execute("SELECT vote_type FROM votes WHERE user_id = ? AND blog_id = ?", (user_id, payload.blog_id))
             row = cursor.fetchone()
             if row:
                 if row["vote_type"] == payload.vote_type:
                     # Bấm lại nút cũ -> Hủy đánh giá
-                    cursor.execute("DELETE FROM votes WHERE user_id = ? AND blog_id = ?", (payload.user_id, payload.blog_id))
+                    cursor.execute("DELETE FROM votes WHERE user_id = ? AND blog_id = ?", (user_id, payload.blog_id))
                 else:
                     # Bấm nút ngược lại -> Cập nhật trạng thái
-                    cursor.execute("UPDATE votes SET vote_type = ? WHERE user_id = ? AND blog_id = ?", (payload.vote_type, payload.user_id, payload.blog_id))
+                    cursor.execute("UPDATE votes SET vote_type = ? WHERE user_id = ? AND blog_id = ?", (payload.vote_type, user_id, payload.blog_id))
             else:
                 # Tạo đánh giá mới
-                cursor.execute("INSERT INTO votes (user_id, blog_id, vote_type) VALUES (?, ?, ?)", (payload.user_id, payload.blog_id, payload.vote_type))
+                cursor.execute("INSERT INTO votes (user_id, blog_id, vote_type) VALUES (?, ?, ?)", (user_id, payload.blog_id, payload.vote_type))
         else:
-            cursor.execute("SELECT vote_type FROM votes WHERE user_id = ? AND comment_id = ?", (payload.user_id, payload.comment_id))
+            cursor.execute("SELECT vote_type FROM votes WHERE user_id = ? AND comment_id = ?", (user_id, payload.comment_id))
             row = cursor.fetchone()
             if row:
                 if row["vote_type"] == payload.vote_type:
                     # Bấm lại nút cũ -> Hủy đánh giá
-                    cursor.execute("DELETE FROM votes WHERE user_id = ? AND comment_id = ?", (payload.user_id, payload.comment_id))
+                    cursor.execute("DELETE FROM votes WHERE user_id = ? AND comment_id = ?", (user_id, payload.comment_id))
                 else:
                     # Bấm nút ngược lại -> Cập nhật
-                    cursor.execute("UPDATE votes SET vote_type = ? WHERE user_id = ? AND comment_id = ?", (payload.vote_type, payload.user_id, payload.comment_id))
+                    cursor.execute("UPDATE votes SET vote_type = ? WHERE user_id = ? AND comment_id = ?", (payload.vote_type, user_id, payload.comment_id))
             else:
-                cursor.execute("INSERT INTO votes (user_id, comment_id, vote_type) VALUES (?, ?, ?)", (payload.user_id, payload.comment_id, payload.vote_type))
+                cursor.execute("INSERT INTO votes (user_id, comment_id, vote_type) VALUES (?, ?, ?)", (user_id, payload.comment_id, payload.vote_type))
                 
         db.commit()
         return {"status": "success", "message": "Xử lý bình chọn thành công"}
@@ -3151,16 +3266,8 @@ async def create_ticket(
     image_urls = []
     if images is not None:
         for image in images:
-            # Skip empty file submissions
             if image.filename:
-                ext = image.filename.split('.')[-1]
-                filename = f"ticket_{uuid.uuid4()}.{ext}"
-                file_path = os.path.join("storage", "tickets", filename)
-                
-                with open(file_path, "wb") as f:
-                    f.write(await image.read())
-                    
-                image_urls.append(f"/tickets_media/{filename}")
+                image_urls.append(await save_uploaded_image(image, "ticket", os.path.join("storage", "tickets"), "/tickets_media"))
 
     # Convert the list of URLs to a JSON string for SQLite storage
     image_url_db = json.dumps(image_urls) if image_urls else None
@@ -3274,12 +3381,7 @@ async def create_ticket_reply(
         if images is not None:
             for image in images:
                 if image.filename:
-                    ext = image.filename.split('.')[-1]
-                    filename = f"reply_{uuid.uuid4()}.{ext}"
-                    file_path = os.path.join("storage", "tickets", filename)
-                    with open(file_path, "wb") as f:
-                        f.write(await image.read())
-                    image_urls.append(f"/tickets_media/{filename}")
+                    image_urls.append(await save_uploaded_image(image, "reply", os.path.join("storage", "tickets"), "/tickets_media"))
 
         image_url_db = json.dumps(image_urls) if image_urls else None
             
@@ -3297,15 +3399,20 @@ async def create_ticket_reply(
     
     
 @app.post("/api/tickets/{ticket_id}/status")
-def update_ticket_status(ticket_id: int, payload: TicketStatusUpdate, db: sqlite3.Connection = Depends(get_db)):
+def update_ticket_status(
+    ticket_id: int,
+    payload: TicketStatusUpdate,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
     cursor = db.cursor()
     try:
-        cursor.execute("SELECT role FROM users WHERE id = ?", (payload.user_id,))
-        user = cursor.fetchone()
+        require_admin_user(cursor, authorization)
+        user = {"role": "admin"}
         if not user:
             raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
             
-        cursor.execute("SELECT user_id FROM tickets WHERE id = ?", (ticket_id,))
+        cursor.execute("SELECT user_id, status FROM tickets WHERE id = ?", (ticket_id,))
         ticket = cursor.fetchone()
         if not ticket:
             raise HTTPException(status_code=404, detail="Ticket không tồn tại")
@@ -3316,6 +3423,8 @@ def update_ticket_status(ticket_id: int, payload: TicketStatusUpdate, db: sqlite
         if not user or user["role"] != "admin":
             raise HTTPException(status_code=403, detail="Chỉ có Quản trị viên mới có quyền đóng/mở Ticket.")
         
+        if payload.status not in ("open", "resolved"):
+            raise HTTPException(status_code=400, detail="Invalid ticket status")
         cursor.execute("UPDATE tickets SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (payload.status, ticket_id))
         db.commit()
         return {"status": "success", "message": f"Cập nhật trạng thái thành công"}
@@ -3323,6 +3432,19 @@ def update_ticket_status(ticket_id: int, payload: TicketStatusUpdate, db: sqlite
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     
+
+@app.get("/api/admin/users/{user_id}")
+def admin_get_user(
+    user_id: int,
+    authorization: Optional[str] = Header(None),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    require_admin_user(cursor, authorization)
+    try:
+        return {"status": "success", "data": fetch_user_profile_record(cursor, user_id)}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
 @app.put("/api/admin/users/{user_id}")
 def admin_update_user(
@@ -3335,24 +3457,7 @@ def admin_update_user(
     cursor = db.cursor()
     
     # Xác định id của admin thực hiện yêu cầu
-    effective_admin_id = payload.admin_id or admin_id
-    
-    is_authenticated = False
-    if authorization:
-        try:
-            require_admin_user(cursor, authorization)
-            is_authenticated = True
-        except HTTPException:
-            pass
-
-    if not is_authenticated:
-        if effective_admin_id is not None:
-            cursor.execute("SELECT role, status FROM users WHERE id = ?", (effective_admin_id,))
-            user = cursor.fetchone()
-            if not user or user["role"] != "admin" or user["status"] != "active":
-                raise HTTPException(status_code=403, detail="Admin privileges required")
-        else:
-            raise HTTPException(status_code=401, detail="Authentication required")
+    require_admin_user(cursor, authorization)
 
     # Kiểm tra sự tồn tại của người dùng mục tiêu
     cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
@@ -3415,7 +3520,8 @@ def admin_update_user(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-    return {"status": "success", "message": "User updated successfully by admin"}
+    updated_user = fetch_user_profile_record(cursor, user_id)
+    return {"status": "success", "message": "User updated successfully by admin", "data": updated_user}
 
 
 
@@ -3451,6 +3557,10 @@ def get_all_submissions(
         user_row = cursor.fetchone()
         if user_row:
             role = user_row["role"]
+
+    current_user = get_current_user(cursor, authorization)
+    current_user_id = current_user["id"]
+    role = current_user["role"]
 
     query = """
         SELECT s.id, s.user_id, s.problem_id, s.submitted_code, s.status, s.score, s.test_results, s.created_at,
@@ -3507,9 +3617,12 @@ def get_all_submissions(
 def get_user_submissions_by_user_id(
     user_id: int,
     problem_id: Optional[int] = None,
+    authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
+    current_user = get_current_user(cursor, authorization)
+    require_owner_or_admin(current_user, user_id, "Cannot view another user's submissions")
     query = """
         SELECT s.id, s.user_id, s.problem_id, s.submitted_code, s.status, s.score, s.test_results, s.created_at,
                u.username, u.display_name, u.avatar_url,
@@ -3547,9 +3660,11 @@ def get_user_submissions_by_user_id(
 def save_problem_solution(
     problem_id: int, 
     payload: SolutionSavePayload, 
+    authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
+    require_admin_user(cursor, authorization)
     cursor.execute("SELECT solution_path, name FROM problems WHERE id = ?", (problem_id,))
     prob = cursor.fetchone()
     if not prob:
@@ -3577,9 +3692,11 @@ def save_problem_solution(
 @app.delete("/api/problems/{problem_id}/solution")
 def delete_problem_solution(
     problem_id: int, 
+    authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
+    require_admin_user(cursor, authorization)
     cursor.execute("SELECT solution_path FROM problems WHERE id = ?", (problem_id,))
     prob = cursor.fetchone()
     if not prob:
@@ -3602,11 +3719,12 @@ def delete_problem_solution(
 def propose_solution_update(
     problem_id: int, 
     payload: ProposalCreatePayload, 
+    authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
-    cursor.execute("SELECT role FROM users WHERE id = ?", (payload.contributor_id,))
-    user = cursor.fetchone()
+    user = require_role(cursor, authorization, ("contributor", "admin"))
+    contributor_id = user["id"]
     if not user or user["role"] not in ("contributor", "admin"):
         raise HTTPException(status_code=403, detail="Chỉ có Contributor hoặc Admin mới có quyền tạo đề xuất.")
         
@@ -3614,7 +3732,7 @@ def propose_solution_update(
         cursor.execute("""
             INSERT INTO solution_proposals (problem_id, contributor_id, proposed_code, status)
             VALUES (?, ?, ?, 'PENDING')
-        """, (problem_id, payload.contributor_id, payload.proposed_code))
+        """, (problem_id, contributor_id, payload.proposed_code))
         db.commit()
         return {"status": "success", "message": "Gửi yêu cầu cập nhật lời giải thành công! Vui lòng chờ Admin xét duyệt."}
     except sqlite3.Error as e:
@@ -3625,12 +3743,13 @@ def propose_solution_update(
 # 4.1.2. Admin lấy danh sách toàn bộ các đề xuất lời giải mẫu đang chờ kiểm duyệt
 @app.get("/api/admin/solution-proposals")
 def list_solution_proposals(
-    admin_id: int, 
+    admin_id: Optional[int] = None,
+    authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
-    cursor.execute("SELECT role FROM users WHERE id = ?", (admin_id,))
-    user = cursor.fetchone()
+    require_admin_user(cursor, authorization)
+    user = {"role": "admin"}
     if not user or user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Quyền truy cập hạn chế dành riêng cho Admin.")
         
@@ -3653,11 +3772,12 @@ def list_solution_proposals(
 def take_action_on_proposal(
     proposal_id: int, 
     payload: ProposalActionPayload, 
+    authorization: Optional[str] = Header(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
-    cursor.execute("SELECT role FROM users WHERE id = ?", (payload.admin_id,))
-    admin = cursor.fetchone()
+    require_admin_user(cursor, authorization)
+    admin = {"role": "admin"}
     if not admin or admin["role"] != "admin":
         raise HTTPException(status_code=403, detail="Quyền kiểm duyệt thuộc về Admin.")
         
@@ -3738,12 +3858,7 @@ async def update_ticket(
         if images is not None:
             for image in images:
                 if image.filename:
-                    ext = image.filename.split('.')[-1]
-                    filename = f"ticket_{uuid.uuid4()}.{ext}"
-                    file_path = os.path.join("storage", "tickets", filename)
-                    with open(file_path, "wb") as f:
-                        f.write(await image.read())
-                    final_images.append(f"/tickets_media/{filename}")
+                    final_images.append(await save_uploaded_image(image, "ticket", os.path.join("storage", "tickets"), "/tickets_media"))
                     
         image_url_db = json.dumps(final_images) if final_images else None
         
@@ -3827,12 +3942,7 @@ async def update_ticket_reply(
         if images is not None:
             for image in images:
                 if image.filename:
-                    ext = image.filename.split('.')[-1]
-                    filename = f"reply_{uuid.uuid4()}.{ext}"
-                    file_path = os.path.join("storage", "tickets", filename)
-                    with open(file_path, "wb") as f:
-                        f.write(await image.read())
-                    final_images.append(f"/tickets_media/{filename}")
+                    final_images.append(await save_uploaded_image(image, "reply", os.path.join("storage", "tickets"), "/tickets_media"))
                     
         image_url_db = json.dumps(final_images) if final_images else None
         

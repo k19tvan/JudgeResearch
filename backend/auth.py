@@ -4,8 +4,12 @@ import os
 import re
 import bcrypt
 import jwt
+from dotenv import load_dotenv
 
-SECRET_KEY = "your-very-secret-key"  # In production, load this from environment variables
+load_dotenv()
+SECRET_KEY = os.getenv("JWT_SECRET_KEY") or os.getenv("ADMIN_SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET_KEY must be configured")
 ALGORITHM = "HS256"
 PASSWORD_MIN_LENGTH = 8
 USERNAME_MIN_LENGTH = 3

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchManagedUserDetails, fetchManagedUsers, updateManagedUser } from "../../api";
+import { API_BASE_URL, fetchManagedUserDetails, fetchManagedUsers, updateManagedUser } from "../../api";
 
 const emptyForm = {
   display_name: "",
@@ -38,7 +38,7 @@ export default function AccountManagementTab({ isLight = false }) {
 
   const getAvatarUrl = (url) => {
     if (!url) return null;
-    return url.startsWith("/") ? `http://localhost:21081${url}` : url;
+    return url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
   };
 
   const syncFormFromUser = (user) => {

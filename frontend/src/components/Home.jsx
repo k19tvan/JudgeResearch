@@ -9,6 +9,7 @@ import ResearchTab from "./tabs/ResearchTab";
 import ProfileTab from "./tabs/ProfileTab";
 import MyRequestsTab from "./tabs/MyRequestsTab";
 import AdminQueueTab from "./tabs/AdminQueueTab";
+import { API_BASE_URL } from "../api";
 
 // IMPORT CÁC TAB MỚI CỦA PHẦN QUẢN LÝ CỘNG ĐỒNG
 import BlogsTab from "./tabs/BlogsTab";
@@ -439,7 +440,7 @@ export default function Home() {
 
   const getAvatarUrl = (url) => {
     if (!url) return null;
-    return url.startsWith("/") ? `http://localhost:21081${url}` : url;
+    return url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
   };
 
   const handleProfileUpdate = (newUsername, newAvatarUrl) => {

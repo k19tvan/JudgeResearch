@@ -1,8 +1,9 @@
+import { API_BASE_URL } from "../../api";
 import React, { useEffect, useState } from "react";
 
 function Avatar({ name = "?", url = null }) {
   if (url) {
-    const fullUrl = url.startsWith("/") ? `http://localhost:21081${url}` : url;
+    const fullUrl = url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
     return (
       <img
         src={fullUrl}
