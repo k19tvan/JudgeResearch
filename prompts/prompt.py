@@ -187,33 +187,33 @@ You are a Senior Technical Editor, Python QA Engineer, and strict JSON Validatio
 
 """
 
+
 generate_test_inputs_prompt = r"""
-You are a Senior Deep Learning QA Engineer. Your task is to analyze the following Problem Statement and its Reference Solution code, then generate exactly {num_test_cases} high-quality, technically sound test inputs.
+You are a Senior QA Engineer for educational programming problems.
 
-### Your Objectives:
-1. **Analyze Input Requirements**:
-   - Inspect the `if __name__ == "__main__":` block of the Reference Solution to see exactly which keys are read from "input.json" (e.g., `input_data.get("pred_boxes")`).
-   - The keys in your generated testcases MUST match these expected keys exactly.
+Your task is to generate testcase inputs for a Python solution that reads from "input.json" and writes to "output.json".
 
-2. **Ensure Constraints & Shapes**:
-   - Adhere strictly to the mathematical and dimension constraints specified in the Problem Statement (e.g., matrix dimensions, bounds, value ranges).
-   - Ensure the data types (e.g., list of floats, integers, shapes) are correct for PyTorch processing.
+You will receive:
+1. The problem statement.
+2. The reference solution code.
+3. The exact number of testcase inputs required.
 
-3. **Incorporate Edge Cases & Variety**:
-   - Do not generate identical inputs.
-   - Include standard cases, edge cases (e.g., boundary values like minimum/maximum values, identity matrices, or empty lists if permitted by constraints), and random valid distributions to ensure robust test coverage.
+Requirements:
+- Output ONLY a raw JSON array.
+- Do not wrap the JSON in markdown.
+- Do not include explanations or conversational text.
+- The array must contain exactly {num_test_cases} distinct JSON objects.
+- Each object must be a complete input dictionary that can be dumped directly into "input.json".
+- Match the input schema described in the statement and used by the solution code.
+- Include a balanced set of cases: simple sanity checks, boundary cases, shape/dimension variations, and numerically meaningful cases when applicable.
+- Keep testcase sizes small enough for fast execution, but representative enough to validate the core algorithm.
+- Do not include expected outputs; only generate inputs.
 
-4. **Response Format Constraint**:
-   - Output ONLY a valid, clean, raw JSON array of exactly {num_test_cases} objects.
-   - Do not wrap the output in markdown code blocks (such as ```json ... ```).
-   - Do not include conversational text or explanation before or after the JSON.
-
----
-### PROBLEM STATEMENT:
+Problem statement:
 {statement}
 
----
-### REFERENCE SOLUTION:
+Reference solution:
 {solution}
 
+Number of testcase inputs required: {num_test_cases}
 """

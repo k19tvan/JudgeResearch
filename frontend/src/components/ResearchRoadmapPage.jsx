@@ -11,6 +11,7 @@ import {
   requestRoadmapApproval,
   approveRoadmap,
   rejectRoadmap,
+  publishRoadmapDirectly,
   unpublishRoadmap,
 } from "../api";
 
