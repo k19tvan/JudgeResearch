@@ -1,0 +1,23 @@
+21: # ================= HÀM DI TRÚ (MIGRATION) CHO DATABASE ÄĂƒ TỒN TẠI =================
+24:     Tự động kiểm tra và thêm các cột mới vào các bảng nếu chạy trên database cũ 
+59:         print("ÄĂ£ hoĂ n tất việc kiểm tra và đồng bộ cấu trĂºc database cũ (nếu có).")
+61:         print(f"Lá»—i khi thá»±c hiện di trĂº cấu trĂºc bảng: {str(e)}")
+71:     print("Đang khởi tạo các bảng trong cơ sở dữ liệu mới...")
+144:     # =============== 5. Bảng Draft Problem Sessions (ÄĂ£ cập nhật tích hợp error_message) ===============
+180:     # =============== 7. Bảng Roadmap Problems (ÄĂ£ cập nhật tích hợp error_message) ===============
+185:         problem_id INTEGER,                       -- Cho phép NULL khi bước nĂ y chưa được lưu chĂ­nh thức
+187:         description TEXT,                         -- MĂ´ tả nháp do AI sinh ra
+190:         status TEXT NOT NULL DEFAULT 'pending',   -- Trạng thái: 'pending', 'generating', 'generated', 'saved', 'failed'
+191:         error_message TEXT,                       -- Lưu log lỗi biên dịch/runtime của tệp solution sinh nháp
+217:     # =============== 9. Bảng Blogs (BĂ i viết chia sẻ) ===============
+230:     # =============== 10. Bảng Comments (Há»— trợ phĂ¢n nhĂ¡nh) ===============
+236:         problem_id INTEGER,      -- Trống nếu lĂ  bình luận của Blog
+237:         blog_id INTEGER,         -- Trống nếu lĂ  thảo luận của Problem
+238:         parent_id INTEGER,       -- Trỏ tá»›i bình luận gốc để phĂ¢n nhĂ¡nh
+248:     # =============== 11. Bảng Votes (Upvote/Downvote bĂ i viết & bình luận) ===============
+265:     # =============== 12. Bảng Tickets (ÄĂ£ cập nhật tích hợp image_url) ===============
+273:         image_url TEXT,                      -- Danh sĂ¡ch đường dẫn ảnh đính kèm (Lưu dạng chuá»—i JSON)
+280:     # =============== 13. Bảng Ticket Replies (ÄĂ£ cập nhật tích hợp image_url) ===============
+287:         image_url TEXT,                      -- Ảnh đính kèm trong phản hồi (Lưu dạng chuá»—i JSON)
+311:     # ThĂªm dữ liệu quản trị viĂªn và tĂ i khoản mẫu hữu Ă­ch
+337:     print("Khởi tạo toĂ n bộ các bảng cơ sở dữ liệu thĂ nh cĂ´ng.")
