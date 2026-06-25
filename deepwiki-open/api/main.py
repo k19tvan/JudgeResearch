@@ -54,10 +54,12 @@ if missing_vars:
 import google.generativeai as genai
 from api.config import GOOGLE_API_KEY
 
-if GOOGLE_API_KEY:
-    genai.configure(api_key=GOOGLE_API_KEY)
+from api.key_manager import key_manager
+
+if key_manager.keys:
+    key_manager.configure_genai()
 else:
-    logger.warning("GOOGLE_API_KEY not configured")
+    logger.warning("GOOGLE_API_KEYS not configured")
 
 if __name__ == "__main__":
     # Get port from environment variable or use default

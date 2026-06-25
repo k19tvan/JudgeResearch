@@ -74,8 +74,29 @@ ALLOWED_IMAGE_TYPES = {
 }
 MAX_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024
 
-api_key = os.getenv("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key) if api_key else None
+from backend.key_manager import key_manager
+
+def generate_content_with_retry(model: str, config: dict, contents: str):
+    max_retries = max(1, len(key_manager.keys))
+    for attempt in range(max_retries):
+        try:
+            client = key_manager.get_client()
+            if not client:
+                raise HTTPException(status_code=503, detail="GEMINI_API_KEYS are not configured")
+            response = client.models.generate_content(
+                model=model,
+                config=config,
+                contents=contents
+            )
+            return response
+        except Exception as e:
+            error_str = str(e).lower()
+            if "429" in error_str or "503" in error_str or "quota" in error_str or "exhausted" in error_str or "high demand" in error_str or "overloaded" in error_str:
+                if attempt < max_retries - 1:
+                    print(f"Google API quota/demand exceeded in backend. Rotating key and retrying... (Attempt {attempt+1}/{max_retries})")
+                    key_manager.rotate_key()
+                    continue
+            raise e
 
 def ensure_schema_migrations():
     conn = sqlite3.connect("database/database.db", check_same_thread=False)
@@ -416,7 +437,7 @@ def validate_email_format(email: str) -> Optional[str]:
 
 def fix_problem_from_repo_response(raw_ai_response: str) -> SyntaxWarning:
     prompt = validate_problem_from_repo_prompt.format(last_ai_response=raw_ai_response)
-    ai_response_fixed = ensure_ai_client().models.generate_content(
+    ai_response_fixed = generate_content_with_retry(
         model="gemini-3.1-flash-lite",
         config={
             "system_instruction": "You are a strict JSON Validator and Senior Deep Learning Engineer. Your task is to ingest a raw, potentially malformed or technically inaccurate JSON string representing a roadmap of programming tasks, repair it, and output a standardized, production-ready JSON array. Follow the objectives and constraints outlined in the prompt meticulously."
@@ -428,7 +449,7 @@ def fix_problem_from_repo_response(raw_ai_response: str) -> SyntaxWarning:
 
 def fix_create_detailed_response(raw_ai_response: str) -> str:
     prompt = validate_create_detailedly_response_prompt.format(raw_ai_response=raw_ai_response)
-    ai_response_fixed = ensure_ai_client().models.generate_content(
+    ai_response_fixed = generate_content_with_retry(
         model="gemini-3.1-flash-lite",
         config={
             "system_instruction": "You are a strict JSON Validator and Senior Deep Learning Engineer. Your task is to ingest a raw, potentially malformed or technically inaccurate JSON string representing detailed problem materials, repair it, and output a standardized, production-ready JSON object. Follow the objectives and constraints outlined in the prompt meticulously."
@@ -450,7 +471,7 @@ def generate_test_inputs_with_gemini(statement: str, solution: str, num_test_cas
     )
     
     # Sử dụng gemini-3.1-flash-lite theo cấu hình tương tự
-    response = ensure_ai_client().models.generate_content(
+    response = generate_content_with_retry(
         model="gemini-3.1-flash-lite",
         config={
             "system_instruction": (
@@ -1302,10 +1323,7 @@ def require_owner_or_admin(current_user: dict, owner_id: int, detail: str = "Una
     if current_user["role"] != "admin" and int(current_user["id"]) != int(owner_id):
         raise HTTPException(status_code=403, detail=detail)
 
-def ensure_ai_client():
-    if client is None:
-        raise HTTPException(status_code=503, detail="GEMINI_API_KEY is not configured")
-    return client
+
 
 async def save_uploaded_image(upload: UploadFile, prefix: str, folder: str, public_base: str) -> str:
     if not upload.filename:

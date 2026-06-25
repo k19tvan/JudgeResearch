@@ -66,12 +66,6 @@ export default function LiveCodingPage() {
   const [error, setError] = useState("");
 
   const [code, setCode] = useState(() => {
-    if (!isPreview) {
-      const savedDraft = localStorage.getItem(`draft_code_${problemId}`);
-      if (savedDraft && savedDraft.trim() !== "" && savedDraft !== "undefined" && savedDraft !== "null") {
-        return savedDraft;
-      }
-    }
     return normalizeEditorCode(baseProblem?.coding_markdown || "");
   });
 
@@ -165,12 +159,7 @@ export default function LiveCodingPage() {
             ...contentProblem,
           }));
 
-          const savedDraft = localStorage.getItem(`draft_code_${problemId}`);
-          if (savedDraft && savedDraft.trim() !== "" && savedDraft !== "undefined" && savedDraft !== "null") {
-            setCode(savedDraft.replace(/\r\n/g, "\n"));
-          } else {
-            setCode(normalizeEditorCode(contentProblem.coding_markdown || ""));
-          }
+          setCode(normalizeEditorCode(contentProblem.coding_markdown || ""));
         }
       }
     } catch (err) {
@@ -323,24 +312,13 @@ export default function LiveCodingPage() {
     }
   }, [activeContentTab, problemId, isPreview]);
 
-  useEffect(() => {
-    if (isPreview || !problemId || !problem || isLoading) return;
 
-    const delayDebounceFn = setTimeout(() => {
-      localStorage.setItem(`draft_code_${problemId}`, code);
-    }, 500);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [code, problemId, problem, isLoading, isPreview]);
 
   const handleResetCode = () => {
     const confirmReset = window.confirm("Are you sure you want to reset your code to the default template?");
     if (confirmReset && problem) {
       const defaultCode = normalizeEditorCode(problem.coding_markdown || "");
       setCode(defaultCode);
-      if (!isPreview) {
-        localStorage.setItem(`draft_code_${problemId}`, defaultCode);
-      }
     }
   };
 

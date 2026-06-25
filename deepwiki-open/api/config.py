@@ -17,7 +17,13 @@ from adalflow import GoogleGenAIClient, OllamaClient
 
 # Get API keys from environment variables
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
-GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
+# Process GOOGLE_API_KEYS list
+_google_keys_str = os.environ.get('GOOGLE_API_KEYS')
+if _google_keys_str:
+    _google_keys = [k.strip() for k in _google_keys_str.split(",") if k.strip()]
+    GOOGLE_API_KEY = _google_keys[0] if _google_keys else os.environ.get('GOOGLE_API_KEY')
+else:
+    GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
 AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')

@@ -706,11 +706,35 @@ This file contains...
                     await websocket.close()
             else:
                 # Google Generative AI (default provider)
-                response = model.generate_content(prompt, stream=True)
-                for chunk in response:
-                    if hasattr(chunk, 'text'):
-                        await websocket.send_text(chunk.text)
-                await websocket.close()
+                from api.key_manager import key_manager
+                
+                max_retries = max(1, len(key_manager.keys))
+                current_model = model
+                for attempt in range(max_retries):
+                    try:
+                        if attempt > 0:
+                            current_model = genai.GenerativeModel(
+                                model_name=model_config["model"],
+                                generation_config={
+                                    "temperature": model_config["temperature"],
+                                    "top_p": model_config["top_p"],
+                                    "top_k": model_config["top_k"]
+                                }
+                            )
+                        response = current_model.generate_content(prompt, stream=True)
+                        for chunk in response:
+                            if hasattr(chunk, 'text'):
+                                await websocket.send_text(chunk.text)
+                        await websocket.close()
+                        break
+                    except Exception as e_google:
+                        error_str = str(e_google).lower()
+                        if "429" in error_str or "503" in error_str or "quota" in error_str or "exhausted" in error_str or "high demand" in error_str or "overloaded" in error_str:
+                            if attempt < max_retries - 1:
+                                logger.warning(f"Google API quota/demand exceeded. Rotating key and retrying... (Attempt {attempt+1}/{max_retries})")
+                                key_manager.rotate_key()
+                                continue
+                        raise e_google
 
         except Exception as e_outer:
             logger.error(f"Error in streaming response: {str(e_outer)}")
@@ -877,22 +901,36 @@ This file contains...
                             await websocket.send_text(error_msg)
                     else:
                         # Google Generative AI fallback (default provider)
-                        model_config = get_model_config(request.provider, request.model)
-                        fallback_model = genai.GenerativeModel(
-                            model_name=model_config["model_kwargs"]["model"],
-                            generation_config={
-                                "temperature": model_config["model_kwargs"].get("temperature", 0.7),
-                                "top_p": model_config["model_kwargs"].get("top_p", 0.8),
-                                "top_k": model_config["model_kwargs"].get("top_k", 40),
-                            },
-                        )
-
-                        fallback_response = fallback_model.generate_content(
-                            simplified_prompt, stream=True
-                        )
-                        for chunk in fallback_response:
-                            if hasattr(chunk, "text"):
-                                await websocket.send_text(chunk.text)
+                        from api.key_manager import key_manager
+                        fallback_model_config = get_model_config(request.provider, request.model)
+                        
+                        max_retries = max(1, len(key_manager.keys))
+                        for attempt in range(max_retries):
+                            try:
+                                fallback_model = genai.GenerativeModel(
+                                    model_name=fallback_model_config["model_kwargs"]["model"],
+                                    generation_config={
+                                        "temperature": fallback_model_config["model_kwargs"].get("temperature", 0.7),
+                                        "top_p": fallback_model_config["model_kwargs"].get("top_p", 0.8),
+                                        "top_k": fallback_model_config["model_kwargs"].get("top_k", 40),
+                                    },
+                                )
+        
+                                fallback_response = fallback_model.generate_content(
+                                    simplified_prompt, stream=True
+                                )
+                                for chunk in fallback_response:
+                                    if hasattr(chunk, "text"):
+                                        await websocket.send_text(chunk.text)
+                                break
+                            except Exception as e_google_fallback:
+                                error_str = str(e_google_fallback).lower()
+                                if "429" in error_str or "503" in error_str or "quota" in error_str or "exhausted" in error_str or "high demand" in error_str or "overloaded" in error_str:
+                                    if attempt < max_retries - 1:
+                                        logger.warning(f"Google API quota/demand exceeded in fallback. Rotating key and retrying... (Attempt {attempt+1}/{max_retries})")
+                                        key_manager.rotate_key()
+                                        continue
+                                raise e_google_fallback
                 except Exception as e2:
                     logger.error(f"Error in fallback streaming response: {str(e2)}")
                     await websocket.send_text(f"\nI apologize, but your request is too large for me to process. Please try a shorter query or break it into smaller parts.")

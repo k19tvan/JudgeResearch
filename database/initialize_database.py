@@ -1,4 +1,4 @@
-﻿import sqlite3
+import sqlite3
 import os
 import argparse
 from dotenv import load_dotenv
@@ -8,26 +8,26 @@ db_dir = "database"
 db_name = "database.db"
 db_path = os.path.join(db_dir, db_name)
 
-# Äáº£m báº£o thÆ° má»¥c lÆ°u trá»¯ cÆ¡ sá»Ÿ dá»¯ liá»‡u tá»“n táº¡i
+# Đảm bảo thư mục lưu trữ cơ sở dữ liệu tồn tại
 os.makedirs(db_dir, exist_ok=True)
 load_dotenv()
 
 def get_db_connection():
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
-    con.execute("PRAGMA foreign_keys = ON;")  # KĂ­ch hoáº¡t rĂ ng buá»™c khĂ³a ngoáº¡i trong SQLite
+    con.execute("PRAGMA foreign_keys = ON;")  # Kích hoạt ràng buộc khóa ngoại trong SQLite
     return con
 
-# ================= HĂ€M DI TRĂ (MIGRATION) CHO DATABASE ÄĂƒ Tá»’N Táº I =================
+# ================= HÀM DI TRÚ (MIGRATION) CHO DATABASE ĐÃ TỒN TẠI =================
 def ensure_schema_migrations():
     """
-    Tá»± Ä‘á»™ng kiá»ƒm tra vĂ  thĂªm cĂ¡c cá»™t má»›i vĂ o cĂ¡c báº£ng náº¿u cháº¡y trĂªn database cÅ© 
-    Ä‘á»ƒ Ä‘áº£m báº£o tĂ­nh tÆ°Æ¡ng thĂ­ch vĂ  giá»¯ nguyĂªn dá»¯ liá»‡u hiá»‡n cĂ³.
+    Tự động kiểm tra và thêm các cột mới vào các bảng nếu chạy trên database cũ 
+    để đảm bảo tính tương thích và giữ nguyên dữ liệu hiện có.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # 1. Kiá»ƒm tra vĂ  bá»• sung cá»™t cho báº£ng draft_problem_sessions
+        # 1. Kiểm tra và bổ sung cột cho bảng draft_problem_sessions
         cursor.execute("PRAGMA table_info(draft_problem_sessions)")
         draft_columns = {row[1] for row in cursor.fetchall()}
         if draft_columns:
@@ -36,41 +36,41 @@ def ensure_schema_migrations():
             if "error_message" not in draft_columns:
                 cursor.execute("ALTER TABLE draft_problem_sessions ADD COLUMN error_message TEXT")
 
-        # 2. Kiá»ƒm tra vĂ  bá»• sung cá»™t cho báº£ng roadmap_problems
+        # 2. Kiểm tra và bổ sung cột cho bảng roadmap_problems
         cursor.execute("PRAGMA table_info(roadmap_problems)")
         rp_columns = {row[1] for row in cursor.fetchall()}
         if rp_columns:
             if "error_message" not in rp_columns:
                 cursor.execute("ALTER TABLE roadmap_problems ADD COLUMN error_message TEXT")
 
-        # 3. Kiá»ƒm tra vĂ  bá»• sung cá»™t cho báº£ng tickets
+        # 3. Kiểm tra và bổ sung cột cho bảng tickets
         cursor.execute("PRAGMA table_info(tickets)")
         ticket_columns = {row[1] for row in cursor.fetchall()}
         if ticket_columns and "image_url" not in ticket_columns:
             cursor.execute("ALTER TABLE tickets ADD COLUMN image_url TEXT")
 
-        # 4. Kiá»ƒm tra vĂ  bá»• sung cá»™t cho báº£ng ticket_replies
+        # 4. Kiểm tra và bổ sung cột cho bảng ticket_replies
         cursor.execute("PRAGMA table_info(ticket_replies)")
         reply_columns = {row[1] for row in cursor.fetchall()}
         if reply_columns and "image_url" not in reply_columns:
             cursor.execute("ALTER TABLE ticket_replies ADD COLUMN image_url TEXT")
             
         conn.commit()
-        print("ÄĂ£ hoĂ n táº¥t viá»‡c kiá»ƒm tra vĂ  Ä‘á»“ng bá»™ cáº¥u trĂºc database cÅ© (náº¿u cĂ³).")
+        print("Đã hoàn tất việc kiểm tra và đồng bộ cấu trúc database cũ (nếu có).")
     except Exception as e:
-        print(f"Lá»—i khi thá»±c hiá»‡n di trĂº cáº¥u trĂºc báº£ng: {str(e)}")
+        print(f"Lỗi khi thực hiện di trú cấu trúc bảng: {str(e)}")
     finally:
         conn.close()
 
 
-# ================= HĂ€M KHá»I Táº O TOĂ€N Bá»˜ DATABASE Má»I =================
+# ================= HÀM KHỞI TẠO TOÀN BỘ DATABASE MỚI =================
 def init_db():
     con = get_db_connection()
     cursor = con.cursor()
     
-    print("Äang khá»Ÿi táº¡o cĂ¡c báº£ng trong cÆ¡ sá»Ÿ dá»¯ liá»‡u má»›i...")
+    print("Đang khởi tạo các bảng trong cơ sở dữ liệu mới...")
 
-    # =============== 1. Báº£ng Users ===============
+    # =============== 1. Bảng Users ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,7 +86,7 @@ def init_db():
     );
     """)
     
-    # =============== 2. Báº£ng Refresh Tokens ===============
+    # =============== 2. Bảng Refresh Tokens ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS refresh_tokens (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,7 +99,7 @@ def init_db():
     );
     """)
     
-    # =============== 3. Báº£ng Problems ===============
+    # =============== 3. Bảng Problems ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS problems (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,8 +114,8 @@ def init_db():
         source TEXT,
         input_folder_path TEXT,    
         output_folder_path TEXT, 
-        input_zip_path TEXT,        -- ÄÆ°á»ng dáº«n file zip input nĂ©n Ä‘Æ°a trá»±c tiáº¿p vĂ o báº£ng
-        output_zip_path TEXT,       -- ÄÆ°á»ng dáº«n file zip output nĂ©n Ä‘Æ°a trá»±c tiáº¿p vĂ o báº£ng
+        input_zip_path TEXT,        -- Đường dẫn file zip input nén đưa trực tiếp vào bảng
+        output_zip_path TEXT,       -- Đường dẫn file zip output nén đưa trực tiếp vào bảng
         is_public INTEGER NOT NULL DEFAULT 0,
         request_status TEXT NOT NULL DEFAULT 'NONE',  -- NONE, PENDING, APPROVED, REJECTED
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -124,7 +124,7 @@ def init_db():
     );
     """)
     
-    # =============== 4. Báº£ng Submissions ===============
+    # =============== 4. Bảng Submissions ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS submissions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,7 +133,7 @@ def init_db():
         submitted_code TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending',  -- pending, accepted, wrong_answer, runtime_error, time_limit_exceeded
         score INTEGER DEFAULT 0,
-        test_results TEXT,  -- Dá»¯ liá»‡u JSON lÆ°u thĂ´ng tin chi tiáº¿t tá»«ng testcase
+        test_results TEXT,  -- Dữ liệu JSON lưu thông tin chi tiết từng testcase
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -141,7 +141,7 @@ def init_db():
     );
     """)
     
-    # =============== 5. Báº£ng Draft Problem Sessions (ÄĂ£ cáº­p nháº­t tĂ­ch há»£p error_message) ===============
+    # =============== 5. Bảng Draft Problem Sessions (Đã cập nhật tích hợp error_message) ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS draft_problem_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,17 +149,17 @@ def init_db():
         repository_url TEXT NOT NULL,
         user_id INTEGER NOT NULL,
         problems_json TEXT NOT NULL,
-        research_title TEXT,                      -- TiĂªu Ä‘á» nghiĂªn cá»©u
-        num_test_cases INTEGER DEFAULT 3,         -- Sá»‘ lÆ°á»£ng testcases cáº¥u hĂ¬nh
-        status TEXT NOT NULL DEFAULT 'draft',     -- 'processing', 'draft', 'failed', hoáº·c 'finalized'
-        error_message TEXT,                       -- Váº¿t lá»—i chi tiáº¿t náº¿u AI sinh tháº¥t báº¡i
+        research_title TEXT,                      -- Tiêu đề nghiên cứu
+        num_test_cases INTEGER DEFAULT 3,         -- Số lượng testcases cấu hình
+        status TEXT NOT NULL DEFAULT 'draft',     -- 'processing', 'draft', 'failed', hoặc 'finalized'
+        error_message TEXT,                       -- Vết lỗi chi tiết nếu AI sinh thất bại
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
     
-    # =============== 6. Báº£ng Roadmaps ===============
+    # =============== 6. Bảng Roadmaps ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS roadmaps (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -169,7 +169,7 @@ def init_db():
         level TEXT NOT NULL,                      -- easy, medium, hard
         user_note TEXT,
         framework TEXT,                           -- pytorch, tensorflow, v.v.
-        num_test_cases INTEGER DEFAULT 3,         -- Sá»‘ lÆ°á»£ng cáº¥u hĂ¬nh testcases
+        num_test_cases INTEGER DEFAULT 3,         -- Số lượng cấu hình testcases
         status TEXT NOT NULL DEFAULT 'draft',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -177,18 +177,18 @@ def init_db():
     );
     """)
 
-    # =============== 7. Báº£ng Roadmap Problems (ÄĂ£ cáº­p nháº­t tĂ­ch há»£p error_message) ===============
+    # =============== 7. Bảng Roadmap Problems (Đã cập nhật tích hợp error_message) ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS roadmap_problems (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         roadmap_id INTEGER NOT NULL,
-        problem_id INTEGER,                       -- Cho phĂ©p NULL khi bÆ°á»›c nĂ y chÆ°a Ä‘Æ°á»£c lÆ°u chĂ­nh thá»©c
+        problem_id INTEGER,                       -- Cho phép NULL khi bước này chưa được lưu chính thức
         name TEXT NOT NULL,
-        description TEXT,                         -- MĂ´ táº£ nhĂ¡p do AI sinh ra
-        target_module TEXT,                       -- ÄÆ°á»ng dáº«n module Ä‘Ă­ch trong repository
+        description TEXT,                         -- Mô tả nháp do AI sinh ra
+        target_module TEXT,                       -- Đường dẫn module đích trong repository
         order_index INTEGER NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',   -- Tráº¡ng thĂ¡i: 'pending', 'generating', 'generated', 'saved', 'failed'
-        error_message TEXT,                       -- LÆ°u log lá»—i biĂªn dá»‹ch/runtime cá»§a tá»‡p solution sinh nhĂ¡p
+        status TEXT NOT NULL DEFAULT 'pending',   -- Trạng thái: 'pending', 'generating', 'generated', 'saved', 'failed'
+        error_message TEXT,                       -- Lưu log lỗi biên dịch/runtime của tệp solution sinh nháp
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (roadmap_id) REFERENCES roadmaps(id) ON DELETE CASCADE,
@@ -196,7 +196,7 @@ def init_db():
     );
     """)
     
-    # =============== 8. Báº£ng Test Runs ===============
+    # =============== 8. Bảng Test Runs ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS test_runs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -214,7 +214,7 @@ def init_db():
     );
     """)
 
-    # =============== 9. Báº£ng Blogs (BĂ i viáº¿t chia sáº») ===============
+    # =============== 9. Bảng Blogs (Bài viết chia sẻ) ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS blogs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -227,15 +227,15 @@ def init_db():
     );
     """)
 
-    # =============== 10. Báº£ng Comments (Há»— trá»£ phĂ¢n nhĂ¡nh) ===============
+    # =============== 10. Bảng Comments (Hỗ trợ phân nhánh) ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS comments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         content TEXT NOT NULL,
         user_id INTEGER NOT NULL,
-        problem_id INTEGER,      -- Trá»‘ng náº¿u lĂ  bĂ¬nh luáº­n cá»§a Blog
-        blog_id INTEGER,         -- Trá»‘ng náº¿u lĂ  tháº£o luáº­n cá»§a Problem
-        parent_id INTEGER,       -- Trá» tá»›i bĂ¬nh luáº­n gá»‘c Ä‘á»ƒ phĂ¢n nhĂ¡nh
+        problem_id INTEGER,      -- Trống nếu là bình luận của Blog
+        blog_id INTEGER,         -- Trống nếu là thảo luận của Problem
+        parent_id INTEGER,       -- Trỏ tới bình luận gốc để phân nhánh
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -245,14 +245,14 @@ def init_db():
     );
     """)
 
-    # =============== 11. Báº£ng Votes (Upvote/Downvote bĂ i viáº¿t & bĂ¬nh luáº­n) ===============
+    # =============== 11. Bảng Votes (Upvote/Downvote bài viết & bình luận) ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS votes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
         blog_id INTEGER,         -- Upvote/downvote cho Blog
         comment_id INTEGER,      -- Upvote/downvote cho Comment
-        vote_type INTEGER NOT NULL, -- 1 (Upvote) hoáº·c -1 (Downvote)
+        vote_type INTEGER NOT NULL, -- 1 (Upvote) hoặc -1 (Downvote)
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id, blog_id),
         UNIQUE(user_id, comment_id),
@@ -262,36 +262,36 @@ def init_db():
     );
     """)
 
-    # =============== 12. Báº£ng Tickets (ÄĂ£ cáº­p nháº­t tĂ­ch há»£p image_url) ===============
+    # =============== 12. Bảng Tickets (Đã cập nhật tích hợp image_url) ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
         title TEXT NOT NULL,
         description TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'open', -- 'open' hoáº·c 'resolved'
-        image_url TEXT,                      -- Danh sĂ¡ch Ä‘Æ°á»ng dáº«n áº£nh Ä‘Ă­nh kĂ¨m (LÆ°u dáº¡ng chuá»—i JSON)
+        status TEXT NOT NULL DEFAULT 'open', -- 'open' hoặc 'resolved'
+        image_url TEXT,                      -- Danh sách đường dẫn ảnh đính kèm (Lưu dạng chuỗi JSON)
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
 
-    # =============== 13. Báº£ng Ticket Replies (ÄĂ£ cáº­p nháº­t tĂ­ch há»£p image_url) ===============
+    # =============== 13. Bảng Ticket Replies (Đã cập nhật tích hợp image_url) ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS ticket_replies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ticket_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
         message TEXT NOT NULL,
-        image_url TEXT,                      -- áº¢nh Ä‘Ă­nh kĂ¨m trong pháº£n há»“i (LÆ°u dáº¡ng chuá»—i JSON)
+        image_url TEXT,                      -- Ảnh đính kèm trong phản hồi (Lưu dạng chuỗi JSON)
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
 
-    # =============== 14. Báº£ng Solution Proposals (Äá» xuáº¥t lá»i giáº£i máº«u má»›i) ===============
+    # =============== 14. Bảng Solution Proposals (Đề xuất lời giải mẫu mới) ===============
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS solution_proposals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -308,7 +308,7 @@ def init_db():
     
     con.commit()
 
-    # ThĂªm dá»¯ liá»‡u quáº£n trá»‹ viĂªn vĂ  tĂ i khoáº£n máº«u há»¯u Ă­ch
+    # Thêm dữ liệu quản trị viên và tài khoản mẫu hữu ích
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
         initial_admin_password = os.getenv("INITIAL_ADMIN_PASSWORD")
@@ -334,7 +334,7 @@ def init_db():
         con.commit()
 
     con.close()
-    print("Khá»Ÿi táº¡o toĂ n bá»™ cĂ¡c báº£ng cÆ¡ sá»Ÿ dá»¯ liá»‡u thĂ nh cĂ´ng.")
+    print("Khởi tạo toàn bộ các bảng cơ sở dữ liệu thành công.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Initialize or migrate the JudgeResearch database.")

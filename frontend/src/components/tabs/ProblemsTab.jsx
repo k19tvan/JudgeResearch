@@ -14,6 +14,48 @@ export default function ProblemsTab({ isLight = false }) {
   const [filterMode, setFilterMode] = useState("all");
   const [editingProblemId, setEditingProblemId] = useState(null);
   const [deletingProblem, setDeletingProblem] = useState(null);
+  const [selectedProblems, setSelectedProblems] = useState([]);
+
+  const toggleSelectProblem = (e, id) => {
+    e.stopPropagation();
+    setSelectedProblems(prev => 
+      prev.includes(id) ? prev.filter(pId => pId !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = (e) => {
+    e.stopPropagation();
+    if (e.target.checked) {
+      setSelectedProblems(problems.map(p => p.id));
+    } else {
+      setSelectedProblems([]);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedProblems.length === 0) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedProblems.length} selected problems?`)) return;
+    
+    setIsLoading(true);
+    let successCount = 0;
+    for (const problemId of selectedProblems) {
+      try {
+        const response = await fetch(`http://localhost:21081/api/problems/${problemId}`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: currentUserId })
+        });
+        if (response.ok) {
+          successCount++;
+        }
+      } catch (err) {
+        console.error("Failed to delete problem", problemId, err);
+      }
+    }
+    alert(`Successfully deleted ${successCount}/${selectedProblems.length} problems.`);
+    setSelectedProblems([]);
+    await loadProblems();
+  };
 
   const [formData, setFormData] = useState({
     name: "",
@@ -86,6 +128,7 @@ export default function ProblemsTab({ isLight = false }) {
       const uid = userId ? Number(userId) : null;
       const result = await filterProblems(filterMode === "all" ? (uid ? "all" : "public") : filterMode, uid);
       setProblems(result?.data || []);
+      setSelectedProblems([]);
     } catch (err) {
       setError(err.message || "Fetch problems failed");
     } finally {
@@ -609,24 +652,43 @@ export default function ProblemsTab({ isLight = false }) {
         </div>
 
         {(role === "admin" || role === "contributor") && (
-          <button
-            type="button"
-            onClick={() => { resetForm(); setIsModalOpen(true); }}
-            className="tk-primary"
-            style={{
-              display: "flex", alignItems: "center", gap: 7,
-              background: t.accent, color: "#fff", border: "none",
-              borderRadius: 7, padding: "8px 16px",
-              fontSize: 12, fontWeight: 600, letterSpacing: "0.02em",
-              cursor: "pointer", transition: "all 0.15s",
-              boxShadow: isLight ? "0 1px 3px rgba(5,150,105,0.3)" : "none",
-            }}
-          >
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <path d="M5.5 1v9M1 5.5h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            Create Problem
-          </button>
+          <div style={{ display: "flex", gap: 10 }}>
+            {selectedProblems.length > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                className="tk-primary"
+                style={{
+                  display: "flex", alignItems: "center", gap: 7,
+                  background: "#e11d48", color: "#fff", border: "none",
+                  borderRadius: 7, padding: "8px 16px",
+                  fontSize: 12, fontWeight: 600, letterSpacing: "0.02em",
+                  cursor: "pointer", transition: "all 0.15s",
+                  boxShadow: isLight ? "0 1px 3px rgba(225,29,72,0.3)" : "none",
+                }}
+              >
+                Delete Selected ({selectedProblems.length})
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => { resetForm(); setIsModalOpen(true); }}
+              className="tk-primary"
+              style={{
+                display: "flex", alignItems: "center", gap: 7,
+                background: t.accent, color: "#fff", border: "none",
+                borderRadius: 7, padding: "8px 16px",
+                fontSize: 12, fontWeight: 600, letterSpacing: "0.02em",
+                cursor: "pointer", transition: "all 0.15s",
+                boxShadow: isLight ? "0 1px 3px rgba(5,150,105,0.3)" : "none",
+              }}
+            >
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M5.5 1v9M1 5.5h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+              Create Problem
+            </button>
+          </div>
         )}
       </div>
 
@@ -668,6 +730,15 @@ export default function ProblemsTab({ isLight = false }) {
                 background: isLight ? t.tableHeadBg : t.tableHeadBg,
                 borderBottom: `1px solid ${isLight ? t.accentDark + "55" : t.border}`,
               }}>
+                {role === "admin" || role === "contributor" ? (
+                  <th style={{ width: 40, padding: "12px 14px", textAlign: "center" }}>
+                    <input 
+                      type="checkbox" 
+                      onChange={toggleSelectAll} 
+                      checked={problems.length > 0 && selectedProblems.length === problems.length} 
+                    />
+                  </th>
+                ) : null}
                 {["✔", "ID", "Problem Name", "Category", "Points", "Visibility", "Actions", "Status"].map((h, i) => (
                   <th key={i} style={{
                     padding: "12px 14px",
@@ -707,6 +778,17 @@ export default function ProblemsTab({ isLight = false }) {
                     onMouseEnter={e => e.currentTarget.style.background = isLight ? "#f0fdf8" : "rgba(6,182,212,0.04)"}
                     onMouseLeave={e => e.currentTarget.style.background = index % 2 === 0 ? "transparent" : (isLight ? "#f8fafc" : "rgba(255,255,255,0.01)")}
                   >
+                    {/* Checkbox */}
+                    {role === "admin" || role === "contributor" ? (
+                      <td style={{ padding: "14px 10px", textAlign: "center", width: 40 }} onClick={(e) => e.stopPropagation()}>
+                        <input 
+                          type="checkbox" 
+                          checked={selectedProblems.includes(problem.id)} 
+                          onChange={(e) => toggleSelectProblem(e, problem.id)} 
+                        />
+                      </td>
+                    ) : null}
+
                     {/* Status Dot */}
                     <td style={{ padding: "14px 10px", textAlign: "center", width: 40 }}>
                       {renderStatusIndicator(problem)}
