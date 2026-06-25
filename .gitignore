@@ -57,6 +57,10 @@ yarn-error.log
 .eslintcache
 package-lock.json
 yarn.lock
+database_info.json
+extract_db.py
+debug_ai_response.txt
+flow.txt
 
 # Frontend build artifacts
 /frontend/dist
