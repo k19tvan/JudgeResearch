@@ -497,6 +497,7 @@ export default function LiveCodingPage() {
   const filteredTabs = isPreview
     ? CONTENT_TABS.filter((tab) => tab.key !== "submissions" && tab.key !== "discussion")
     : CONTENT_TABS;
+  const problemDisplayName = problem?.title || problem?.name || (isPreview ? "Draft Step Preview" : `Problem #${problemId}`);
 
   return (
     <div
@@ -585,8 +586,12 @@ export default function LiveCodingPage() {
         <div className="flex items-center gap-3">
           <span className="text-xl">🤖</span>
           <div className="h-4 w-[1px]" style={{ background: t.border }} />
-          <h1 className="text-sm font-bold tracking-wide" style={{ color: t.textPrimary }}>
-            {problem?.title || (isPreview ? "Draft Step Preview" : `Problem #${problemId}`)}
+          <h1
+            className="max-w-[52vw] truncate text-sm font-bold tracking-wide"
+            style={{ color: t.textPrimary }}
+            title={problemDisplayName}
+          >
+            {problemDisplayName}
           </h1>
           <span
             className="rounded px-2 py-0.5 text-[10px] font-semibold"

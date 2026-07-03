@@ -14,6 +14,7 @@ from api.config import (
     configs,
     OPENROUTER_API_KEY,
     OPENAI_API_KEY,
+    GROQ_API_KEY,
     AWS_ACCESS_KEY_ID,
     AWS_SECRET_ACCESS_KEY,
 )
@@ -21,6 +22,7 @@ from api.data_pipeline import count_tokens, get_file_content
 from api.bedrock_client import BedrockClient
 from api.openai_client import OpenAIClient
 from api.openrouter_client import OpenRouterClient
+from api.groq_client import GroqClient
 from api.azureai_client import AzureAIClient
 from api.dashscope_client import DashscopeClient
 from api.rag import RAG
@@ -50,7 +52,7 @@ class ChatCompletionRequest(BaseModel):
     # model parameters
     provider: str = Field(
         "google",
-        description="Model provider (google, openai, openrouter, ollama, bedrock, azure, dashscope)",
+        description="Model provider (google, openai, openrouter, groq, ollama, bedrock, azure, dashscope)",
     )
     model: Optional[str] = Field(None, description="Model name for the specified provider")
 
@@ -438,6 +440,12 @@ This file contains...
         prompt += f"<query>\n{query}\n</query>\n\nAssistant: "
 
         model_config = get_model_config(request.provider, request.model)["model_kwargs"]
+        resolved_model = model_config["model"]
+        logger.info(
+            "Generation provider resolved: provider=%s, model=%s",
+            request.provider,
+            resolved_model,
+        )
 
         if request.provider == "ollama":
             prompt += " /no_think"
@@ -459,7 +467,7 @@ This file contains...
                 model_type=ModelType.LLM
             )
         elif request.provider == "openrouter":
-            logger.info(f"Using OpenRouter with model: {request.model}")
+            logger.info(f"Using OpenRouter with model: {resolved_model}")
 
             # Check if OpenRouter API key is set
             if not OPENROUTER_API_KEY:
@@ -468,7 +476,7 @@ This file contains...
 
             model = OpenRouterClient()
             model_kwargs = {
-                "model": request.model,
+                "model": resolved_model,
                 "stream": True,
                 "temperature": model_config["temperature"]
             }
@@ -481,18 +489,21 @@ This file contains...
                 model_kwargs=model_kwargs,
                 model_type=ModelType.LLM
             )
-        elif request.provider == "openai":
-            logger.info(f"Using Openai protocol with model: {request.model}")
+        elif request.provider in ["openai", "groq"]:
+            provider_name = "Groq" if request.provider == "groq" else "Openai"
+            logger.info(f"Using {provider_name} protocol with model: {resolved_model}")
 
-            # Check if an API key is set for Openai
-            if not OPENAI_API_KEY:
-                logger.warning("OPENAI_API_KEY not configured, but continuing with request")
-                # We'll let the OpenAIClient handle this and return an error message
+            if request.provider == "groq":
+                if not GROQ_API_KEY:
+                    logger.warning("GROQ_API_KEY not configured, but continuing with request")
+                model = GroqClient()
+            else:
+                if not OPENAI_API_KEY:
+                    logger.warning("OPENAI_API_KEY not configured, but continuing with request")
+                model = OpenAIClient()
 
-            # Initialize Openai client
-            model = OpenAIClient()
             model_kwargs = {
-                "model": request.model,
+                "model": resolved_model,
                 "stream": True,
                 "temperature": model_config["temperature"]
             }
@@ -506,7 +517,7 @@ This file contains...
                 model_type=ModelType.LLM
             )
         elif request.provider == "bedrock":
-            logger.info(f"Using AWS Bedrock with model: {request.model}")
+            logger.info(f"Using AWS Bedrock with model: {resolved_model}")
 
             if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
                 logger.warning(
@@ -514,7 +525,7 @@ This file contains...
 
             model = BedrockClient()
             model_kwargs = {
-                "model": request.model,
+                "model": resolved_model,
             }
 
             for key in ["temperature", "top_p"]:
@@ -527,12 +538,12 @@ This file contains...
                 model_type=ModelType.LLM
             )
         elif request.provider == "azure":
-            logger.info(f"Using Azure AI with model: {request.model}")
+            logger.info(f"Using Azure AI with model: {resolved_model}")
 
             # Initialize Azure AI client
             model = AzureAIClient()
             model_kwargs = {
-                "model": request.model,
+                "model": resolved_model,
                 "stream": True,
                 "temperature": model_config["temperature"],
                 "top_p": model_config["top_p"]
@@ -544,12 +555,12 @@ This file contains...
                 model_type=ModelType.LLM
             )
         elif request.provider == "dashscope":
-            logger.info(f"Using Dashscope with model: {request.model}")
+            logger.info(f"Using Dashscope with model: {resolved_model}")
 
             # Initialize Dashscope client
             model = DashscopeClient()
             model_kwargs = {
-                "model": request.model,
+                "model": resolved_model,
                 "stream": True,
                 "temperature": model_config["temperature"],
                 "top_p": model_config["top_p"]
@@ -618,12 +629,14 @@ This file contains...
                     await websocket.send_text(error_msg)
                     # Close the WebSocket connection after sending the error message
                     await websocket.close()
-            elif request.provider == "openai":
+            elif request.provider in ["openai", "groq"]:
+                provider_name = "Groq" if request.provider == "groq" else "Openai"
+                api_key_name = "GROQ_API_KEY" if request.provider == "groq" else "OPENAI_API_KEY"
                 try:
                     # Get the response and handle it properly using the previously created api_kwargs
-                    logger.info("Making Openai API call")
+                    logger.info(f"Making {provider_name} API call")
                     response = await model.acall(api_kwargs=api_kwargs, model_type=ModelType.LLM)
-                    # Handle streaming response from Openai
+                    # Handle streaming response from OpenAI-compatible providers
                     async for chunk in response:
                         choices = getattr(chunk, "choices", [])
                         if len(choices) > 0:
@@ -635,8 +648,8 @@ This file contains...
                     # Explicitly close the WebSocket connection after the response is complete
                     await websocket.close()
                 except Exception as e_openai:
-                    logger.error(f"Error with Openai API: {str(e_openai)}")
-                    error_msg = f"\nError with Openai API: {str(e_openai)}\n\nPlease check that you have set the OPENAI_API_KEY environment variable with a valid API key."
+                    logger.error(f"Error with {provider_name} API: {str(e_openai)}")
+                    error_msg = f"\nError with {provider_name} API: {str(e_openai)}\n\nPlease check that you have set the {api_key_name} environment variable with a valid API key."
                     await websocket.send_text(error_msg)
                     # Close the WebSocket connection after sending the error message
                     await websocket.close()
@@ -796,7 +809,9 @@ This file contains...
                             logger.error(f"Error with OpenRouter API fallback: {str(e_fallback)}")
                             error_msg = f"\nError with OpenRouter API fallback: {str(e_fallback)}\n\nPlease check that you have set the OPENROUTER_API_KEY environment variable with a valid API key."
                             await websocket.send_text(error_msg)
-                    elif request.provider == "openai":
+                    elif request.provider in ["openai", "groq"]:
+                        provider_name = "Groq" if request.provider == "groq" else "Openai"
+                        api_key_name = "GROQ_API_KEY" if request.provider == "groq" else "OPENAI_API_KEY"
                         try:
                             # Create new api_kwargs with the simplified prompt
                             fallback_api_kwargs = model.convert_inputs_to_api_kwargs(
@@ -806,16 +821,24 @@ This file contains...
                             )
 
                             # Get the response using the simplified prompt
-                            logger.info("Making fallback Openai API call")
+                            logger.info(f"Making fallback {provider_name} API call")
                             fallback_response = await model.acall(api_kwargs=fallback_api_kwargs, model_type=ModelType.LLM)
 
-                            # Handle streaming fallback_response from Openai
+                            # Handle streaming fallback_response from OpenAI-compatible providers
                             async for chunk in fallback_response:
-                                text = chunk if isinstance(chunk, str) else getattr(chunk, 'text', str(chunk))
-                                await websocket.send_text(text)
+                                if isinstance(chunk, str):
+                                    await websocket.send_text(chunk)
+                                else:
+                                    choices = getattr(chunk, "choices", [])
+                                    if len(choices) > 0:
+                                        delta = getattr(choices[0], "delta", None)
+                                        if delta is not None:
+                                            text = getattr(delta, "content", None)
+                                            if text is not None:
+                                                await websocket.send_text(text)
                         except Exception as e_fallback:
-                            logger.error(f"Error with Openai API fallback: {str(e_fallback)}")
-                            error_msg = f"\nError with Openai API fallback: {str(e_fallback)}\n\nPlease check that you have set the OPENAI_API_KEY environment variable with a valid API key."
+                            logger.error(f"Error with {provider_name} API fallback: {str(e_fallback)}")
+                            error_msg = f"\nError with {provider_name} API fallback: {str(e_fallback)}\n\nPlease check that you have set the {api_key_name} environment variable with a valid API key."
                             await websocket.send_text(error_msg)
                     elif request.provider == "bedrock":
                         try:

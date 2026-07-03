@@ -107,14 +107,18 @@ pip install dotenv grpcio faiss-cpu
 Create an environment file:
 
 ```bash
-cp env_example .env
+cp .env.example .env
 ```
 
-Then configure your Gemini API key:
+Then configure the keys for the providers you use:
 
 ```env
-GEMINI_API_KEY=your-api-key
+GOOGLE_API_KEY=your-google-api-key
+OPENAI_API_KEY=your-openai-api-key
+GROQ_API_KEY=your-groq-api-key
 ```
+
+`OPENAI_API_KEY` is still needed for the default embedding setup. `GROQ_API_KEY` is only used for DeepWiki answer/wiki generation after selecting the Groq provider in Model Options. To change the Groq model, edit `deepwiki-open/api/config/generator.json` or choose "Use custom model" in the UI, for example `llama-3.3-70b-versatile` or `openai/gpt-oss-120b`.
 
 ---
 

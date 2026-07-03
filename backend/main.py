@@ -36,10 +36,17 @@ import tempfile
 import subprocess
 import sys
 
-os.makedirs("database", exist_ok=True)
-os.makedirs("storage/problems", exist_ok=True)
-os.makedirs("storage/tickets", exist_ok=True)
-os.makedirs("storage/blogs", exist_ok=True)
+REQUIRED_DIRECTORIES = [
+    "database",
+    "storage/problems",
+    "storage/tickets",
+    "storage/blogs",
+    "storage/avatars",
+    "storage/draft_problems",
+]
+
+for directory in REQUIRED_DIRECTORIES:
+    os.makedirs(directory, exist_ok=True)
 
 app = FastAPI()
 app.mount("/tickets_media", StaticFiles(directory="storage/tickets"), name="tickets_media")
@@ -359,7 +366,7 @@ def check_wiki_cache(owner: str, repo: str, repo_type: str = "github", language:
     response = requests.get(f"{deepwiki_url}/api/wiki_cache", params=params)  
     return response.json() if response.status_code == 200 else None  
 
-def ask_question(repo_url: str, question: str, provider: str = "google"):  
+def ask_question(repo_url: str, question: str, provider: str = "groq"):  
     payload = {  
         "repo_url": repo_url,  
         "messages": [{"role": "user", "content": question}],  

@@ -30,6 +30,7 @@ OPENAI_API_KEY=your_openai_api_key        # Required for embeddings and OpenAI m
 
 # Optional API Keys
 OPENROUTER_API_KEY=your_openrouter_api_key  # Required only if using OpenRouter models
+GROQ_API_KEY=your_groq_api_key              # Required only if using Groq generation models
 
 # AWS Bedrock Configuration
 AWS_ACCESS_KEY_ID=your_aws_access_key_id      # Required for AWS Bedrock models
@@ -39,6 +40,7 @@ AWS_ROLE_ARN=your_aws_role_arn                # Optional, for role-based authent
 
 # OpenAI API Configuration
 OPENAI_BASE_URL=https://custom-api-endpoint.com/v1  # Optional, for custom OpenAI API endpoints
+GROQ_BASE_URL=https://api.groq.com/openai/v1        # Optional, defaults to Groq's OpenAI-compatible endpoint
 
 # Ollama host
 OLLAMA_HOST=https://your_ollama_host"  # Optional: Add Ollama host if not local. default: http://localhost:11434
@@ -53,6 +55,7 @@ If you're not using Ollama mode, you need to configure an OpenAI API key for emb
 > - Get a Google API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
 > - Get an OpenAI API key from [OpenAI Platform](https://platform.openai.com/api-keys)
 > - Get an OpenRouter API key from [OpenRouter](https://openrouter.ai/keys)
+> - Get a Groq API key from [Groq Console](https://console.groq.com/keys)
 > - Get AWS credentials from [AWS IAM Console](https://console.aws.amazon.com/iam/)
 
 #### Advanced Environment Configuration
@@ -63,8 +66,11 @@ DeepWiki supports multiple LLM providers. The environment variables above are re
 - **Google Gemini**: Requires `GOOGLE_API_KEY`
 - **OpenAI**: Requires `OPENAI_API_KEY`
 - **OpenRouter**: Requires `OPENROUTER_API_KEY`
+- **Groq**: Requires `GROQ_API_KEY`
 - **AWS Bedrock**: Requires `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
 - **Ollama**: No API key required (runs locally)
+
+Groq is used only for answer/wiki generation. Embeddings are still configured separately through `api/config/embedder.json` and `DEEPWIKI_EMBEDDER_TYPE`; Groq is not added as an embedding provider.
 
 ##### Custom OpenAI API Endpoints
 The `OPENAI_BASE_URL` variable allows you to specify a custom endpoint for the OpenAI API. This is useful for:
@@ -84,6 +90,7 @@ DeepWiki now uses JSON configuration files to manage various system components i
 1. **`generator.json`**: Configuration for text generation models
    - Located in `api/config/` by default
    - Defines available model providers (Google, OpenAI, OpenRouter, AWS Bedrock, Ollama)
+   - The Groq provider defaults to `llama-3.3-70b-versatile`; you can select listed models or enable a custom model in the UI
    - Specifies default and available models for each provider
    - Contains model-specific parameters like temperature and top_p
 
